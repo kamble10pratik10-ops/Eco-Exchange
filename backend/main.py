@@ -8,17 +8,18 @@ from . import models, schemas
 from .auth import authenticate_user, create_access_token, get_password_hash, get_current_user
 from .database import engine, Base, get_db
 
-Base.metadata.create_all(bind=engine)
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Exo Exchange API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173","*"],
-    allow_credentials=False,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 @app.get("/health")
@@ -56,7 +57,7 @@ def login_for_access_token(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = create_access_token(data={"sub": user.id})
+    access_token = create_access_token(data={"sub": str(user.id)})
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -66,6 +67,8 @@ def create_listing(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    print("🔥 Current user:", current_user)
+    print("🔥 Payload:", payload)
     listing = models.Listing(**payload.dict(), owner_id=current_user.id)
     db.add(listing)
     db.commit()

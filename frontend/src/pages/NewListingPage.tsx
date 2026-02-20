@@ -31,8 +31,8 @@ export default function NewListingPage({
             const res = await fetch(`${API_URL}/listings`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     title,
