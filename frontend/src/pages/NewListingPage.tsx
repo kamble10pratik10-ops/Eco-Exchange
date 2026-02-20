@@ -109,7 +109,7 @@ export default function NewListingPage({
                 {error && <p className="error">{error}</p>}
                 {success && <p className="success">{success}</p>}
                 <button type="submit" disabled={loading}>
-                    {loading ? 'Posting…' : 'Post ad'}
+                    {loading ? 'Posting…' : 'Posts'}
                 </button>
             </form>
         </section>

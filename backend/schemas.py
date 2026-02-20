@@ -15,8 +15,8 @@ class UserCreate(UserBase):
 class User(UserBase):
     id: int
 
-class Config:
-    orm_mode = True
+    class Config:
+        from_attributes = True
 
 
 
@@ -37,8 +37,8 @@ class Listing(ListingBase):
     is_active: bool
     owner_id: int
 
-class Config:
-    orm_mode = True
+    class Config:
+        from_attributes = True
 
 
 class Token(BaseModel):

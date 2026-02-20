@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Set
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func, desc
 
@@ -36,6 +36,7 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket, user_id: int):
         await websocket.accept()
+        print(f"WS: User {user_id} connected")
         if user_id not in self.active_connections:
             self.active_connections[user_id] = set()
         self.active_connections[user_id].add(websocket)
@@ -79,11 +80,12 @@ def ws_authenticate(token: str, db: Session) -> models.User:
 # ─── WebSocket endpoint ───
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = ""):
+async def websocket_endpoint(websocket: WebSocket, token: str = Query("")):
     db = next(get_db())
     user = ws_authenticate(token, db)
     if not user:
-        await websocket.close(code=4001)
+        print("WS AUTH FAILED: Invalid token")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         db.close()
         return
 
@@ -137,6 +139,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
 
                 # Send to both participants
                 other_id = conv.seller_id if user.id == conv.buyer_id else conv.buyer_id
+                print(f"WS: Broadcasting message {msg.id} from user {user.id} to {user.id} and {other_id}")
                 await manager.send_to_user(user.id, msg_data)
                 await manager.send_to_user(other_id, msg_data)
 
@@ -165,7 +168,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, user.id)
-    except Exception:
+    except Exception as e:
+        print(f"WS ERROR: {str(e)}")
         manager.disconnect(websocket, user.id)
     finally:
         db.close()
@@ -285,34 +289,55 @@ async def upload_attachment(
         import cloudinary
         import cloudinary.uploader
 
-        # Configure Cloudinary (reads from env vars)
+        # Configure Cloudinary
+        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME")
+        api_key = os.environ.get("CLOUDINARY_API_KEY")
+        api_secret = os.environ.get("CLOUDINARY_API_SECRET")
+
+        if not all([cloud_name, api_key, api_secret]):
+            print("ERROR: Missing Cloudinary credentials in .env")
+            raise HTTPException(status_code=500, detail="Cloudinary credentials missing in server .env file")
+
         cloudinary.config(
-            cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
-            api_key=os.environ.get("CLOUDINARY_API_KEY", ""),
-            api_secret=os.environ.get("CLOUDINARY_API_SECRET", ""),
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret,
+            secure=True
         )
 
         # Determine resource type
         content_type = file.content_type or ""
         if content_type.startswith("video"):
             resource_type = "video"
-        else:
+        elif content_type == "application/pdf":
+            # Using 'raw' for PDFs often avoids the '401 Unauthorized' (PDF Authentication) 
+            # issues that occur when PDFs are treated as images in some Cloudinary accounts.
+            resource_type = "raw"
+        elif content_type.startswith("image"):
             resource_type = "image"
+        else:
+            resource_type = "auto"
 
+        # Read file content as bytes
+        file_bytes = await file.read()
+        
         result = cloudinary.uploader.upload(
-            file.file,
+            file_bytes,
             folder="exo_exchange_chat",
             resource_type=resource_type,
+            use_filename=True,
+            unique_filename=True
         )
 
         return {
             "url": result["secure_url"],
             "public_id": result["public_id"],
-            "resource_type": resource_type,
+            "resource_type": result.get("resource_type", resource_type),
         }
     except ImportError:
-        raise HTTPException(status_code=500, detail="Cloudinary not configured. Install cloudinary package.")
+        raise HTTPException(status_code=500, detail="Cloudinary package not installed.")
     except Exception as e:
+        print(f"UPLOAD ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
@@ -344,9 +369,9 @@ def _build_conversation_out(conv: Conversation, current_user_id: int, db: Sessio
         seller_id=conv.seller_id,
         created_at=conv.created_at,
         updated_at=conv.updated_at,
-        buyer=UserMini.from_orm(conv.buyer),
-        seller=UserMini.from_orm(conv.seller),
-        listing=ListingMini.from_orm(conv.listing),
-        last_message=MessageOut.from_orm(last_msg) if last_msg else None,
+        buyer=UserMini.model_validate(conv.buyer),
+        seller=UserMini.model_validate(conv.seller),
+        listing=ListingMini.model_validate(conv.listing),
+        last_message=MessageOut.model_validate(last_msg) if last_msg else None,
         unread_count=unread or 0,
     )

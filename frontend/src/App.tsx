@@ -49,7 +49,7 @@ function Layout({
             <NavLink to="/" end>
               Home
             </NavLink>
-            <NavLink to="/listings/new">Post ad</NavLink>
+            <NavLink to="/listings/new">Posts</NavLink>
             {authed && (
               <NavLink to="/messages" className="nav-messages-link">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
@@ -68,7 +68,6 @@ function Layout({
             )}
           </nav>
         </div>
-        <p>Buy and sell pre-loved items locally, like OLX.</p>
       </header>
       <main className="app-main">{children}</main>
     </div>

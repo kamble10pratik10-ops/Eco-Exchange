@@ -24,7 +24,7 @@ class MessageOut(BaseModel):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ─── Conversation ───
@@ -39,7 +39,7 @@ class UserMini(BaseModel):
     email: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ListingMini(BaseModel):
@@ -48,7 +48,7 @@ class ListingMini(BaseModel):
     price: float
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ConversationOut(BaseModel):
@@ -65,7 +65,7 @@ class ConversationOut(BaseModel):
     unread_count: int = 0
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ConversationDetail(BaseModel):
@@ -81,4 +81,4 @@ class ConversationDetail(BaseModel):
     messages: List[MessageOut] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True

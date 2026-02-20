@@ -777,13 +777,84 @@ body {
 }
 
 .chat-attachment-media {
-  max-width: 280px;
-  max-height: 200px;
-  border-radius: 0.6rem;
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
   cursor: pointer;
   display: block;
-  object-fit: cover;
-  transition: transform 0.2s;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.chat-attachment-pdf {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 200px;
+}
+
+.chat-attachment-pdf:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.pdf-icon {
+  font-size: 1.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: #fee2e2;
+  border-radius: 10px;
+  color: #ef4444;
+}
+
+.pdf-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pdf-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e293b;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-size {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.bubble-mine .chat-attachment-pdf {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: white;
+}
+
+.bubble-mine .pdf-name {
+  color: white;
+}
+
+.bubble-mine .pdf-size {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.bubble-mine .pdf-icon {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
 .chat-attachment-media:hover {

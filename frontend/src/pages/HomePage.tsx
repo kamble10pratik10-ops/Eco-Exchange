@@ -85,8 +85,7 @@ export default function HomePage({ token }: { token: string | null }) {
   return (
     <>
       <section className="hero">
-        <h2>Latest listings</h2>
-        <p>Browse second-hand items posted by people around you.</p>
+        <h2>Latest Products Available...</h2>
       </section>
 
       {listings.length === 0 ? (

@@ -39,6 +39,7 @@ export default function ChatPage({ token }: { token: string | null }) {
     const [currentUserId, setCurrentUserId] = useState<number | null>(null)
     const [isTyping, setIsTyping] = useState(false)
     const [showAttachMenu, setShowAttachMenu] = useState(false)
+    const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed'>('connecting')
 
     const wsRef = useRef<WebSocket | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -83,49 +84,94 @@ export default function ChatPage({ token }: { token: string | null }) {
 
     // WebSocket
     useEffect(() => {
-        if (!token) return
+        if (!token || !conversationId) return
 
-        const ws = new WebSocket(`${WS_URL}/chat/ws?token=${token}`)
-        wsRef.current = ws
+        let ws: WebSocket | null = null
+        let timeoutId: number
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data)
-            if (data.type === 'new_message' && data.message.conversation_id === Number(conversationId)) {
-                setMessages((prev) => {
-                    // Avoid duplicates
-                    if (prev.some((m) => m.id === data.message.id)) return prev
-                    return [...prev, data.message]
-                })
+        const connect = () => {
+            setWsStatus('connecting')
+            console.log('WS: Connecting...')
+            ws = new WebSocket(`${WS_URL}/chat/ws?token=${token}`)
+            wsRef.current = ws
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data)
+                console.log('WS: Received', data.type)
+                if (data.type === 'new_message' && data.message.conversation_id === Number(conversationId)) {
+                    setMessages((prev) => {
+                        if (prev.some((m) => m.id === data.message.id)) return prev
+                        return [...prev, data.message]
+                    })
+                }
+                if (data.type === 'typing' && data.conversation_id === Number(conversationId)) {
+                    setIsTyping(true)
+                    setTimeout(() => setIsTyping(false), 2000)
+                }
             }
-            if (data.type === 'typing' && data.conversation_id === Number(conversationId)) {
-                setIsTyping(true)
-                setTimeout(() => setIsTyping(false), 2000)
+
+            ws.onopen = () => {
+                console.log('WS: Connected')
+                setWsStatus('open')
+                ws?.send(JSON.stringify({ action: 'mark_read', conversation_id: Number(conversationId) }))
+            }
+
+            ws.onclose = () => {
+                console.log('WS: Disconnected')
+                setWsStatus('closed')
+            }
+
+            ws.onerror = (err) => {
+                console.error('WS: Error', err)
+                setWsStatus('closed')
             }
         }
 
-        ws.onopen = () => {
-            // Mark messages as read
-            ws.send(JSON.stringify({ action: 'mark_read', conversation_id: Number(conversationId) }))
-        }
+        // Small delay to prevent issues with React strict mode double-mount
+        timeoutId = window.setTimeout(connect, 1000)
 
         return () => {
-            ws.close()
+            window.clearTimeout(timeoutId)
+            ws?.close()
         }
     }, [token, conversationId])
 
     // Send message
-    const sendMessage = () => {
+    const sendMessage = async () => {
         if (!input.trim() && !uploading) return
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
-
-        wsRef.current.send(
-            JSON.stringify({
-                action: 'send_message',
-                conversation_id: Number(conversationId),
-                content: input.trim(),
-            }),
-        )
+        const content = input.trim()
         setInput('')
+
+        // Try WebSocket first
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(
+                JSON.stringify({
+                    action: 'send_message',
+                    conversation_id: Number(conversationId),
+                    content: content,
+                }),
+            )
+        } else {
+            // Fallback to REST API
+            console.warn('WS: Not open, using REST fallback')
+            try {
+                const res = await fetch(`${API_URL}/chat/conversations/${conversationId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ content: content })
+                })
+                if (!res.ok) throw new Error('REST fallback failed')
+                const newMessage = await res.json()
+                setMessages(prev => [...prev, newMessage])
+            } catch (err) {
+                console.error('Send failed:', err)
+                alert('Failed to send message. Please check your connection.')
+                setInput(content) // restore input
+            }
+        }
     }
 
     // Handle typing indicator
@@ -191,6 +237,39 @@ export default function ChatPage({ token }: { token: string | null }) {
         }
     }
 
+    const renderAttachment = (msg: MessageType) => {
+        if (!msg.attachment_url) return null
+
+        const isVideo = msg.attachment_type === 'video'
+        const isPdf = msg.attachment_url.toLowerCase().includes('.pdf') || msg.attachment_type === 'raw'
+
+        if (isVideo) {
+            return <video src={msg.attachment_url} controls className="chat-attachment-media" />
+        }
+
+        if (isPdf) {
+            const fileName = msg.attachment_url.split('/').pop()?.split('?')[0] || 'Document.pdf'
+            return (
+                <div className="chat-attachment-pdf" onClick={() => window.open(msg.attachment_url!, '_blank')}>
+                    <div className="pdf-icon">📄</div>
+                    <div className="pdf-info">
+                        <span className="pdf-name">{fileName}</span>
+                        <span className="pdf-size">Click to view</span>
+                    </div>
+                </div>
+            )
+        }
+
+        return (
+            <img
+                src={msg.attachment_url}
+                alt="attachment"
+                className="chat-attachment-media"
+                onClick={() => window.open(msg.attachment_url!, '_blank')}
+            />
+        )
+    }
+
     if (!token)
         return (
             <div className="chat-page">
@@ -221,7 +300,10 @@ export default function ChatPage({ token }: { token: string | null }) {
                 <div className="chat-header-info">
                     <div className="chat-avatar">{otherUser.name.charAt(0).toUpperCase()}</div>
                     <div>
-                        <h3 className="chat-header-name">{otherUser.name}</h3>
+                        <h3 className="chat-header-name">
+                            {otherUser.name}
+                            <span className={`ws-status-dot ${wsStatus}`} title={wsStatus}></span>
+                        </h3>
                         <p className="chat-header-listing">
                             Re: {conversation.listing.title} — ₹{conversation.listing.price.toLocaleString()}
                         </p>
@@ -250,24 +332,7 @@ export default function ChatPage({ token }: { token: string | null }) {
                             )}
                             <div className="chat-msg-bubble-wrapper">
                                 <div className={`chat-msg-bubble ${isMine ? 'bubble-mine' : 'bubble-other'}`}>
-                                    {msg.attachment_url && (
-                                        <div className="chat-attachment">
-                                            {msg.attachment_type === 'video' ? (
-                                                <video
-                                                    src={msg.attachment_url}
-                                                    controls
-                                                    className="chat-attachment-media"
-                                                />
-                                            ) : (
-                                                <img
-                                                    src={msg.attachment_url}
-                                                    alt="attachment"
-                                                    className="chat-attachment-media"
-                                                    onClick={() => window.open(msg.attachment_url!, '_blank')}
-                                                />
-                                            )}
-                                        </div>
-                                    )}
+                                    {renderAttachment(msg)}
                                     {msg.content && <p className="chat-msg-text">{msg.content}</p>}
                                 </div>
                                 <span className="chat-msg-time">
@@ -314,10 +379,14 @@ export default function ChatPage({ token }: { token: string | null }) {
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                                     Video
                                 </button>
+                                <button onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false) }}>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                                    Document (PDF)
+                                </button>
                             </div>
                         )}
                     </div>
-                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*,video/*" hidden />
+                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*,video/*,application/pdf" hidden />
                     <textarea
                         className="chat-text-input"
                         placeholder="Type a message…"

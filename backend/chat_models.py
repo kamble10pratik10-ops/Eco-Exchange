@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timezone
 
 from .database import Base
@@ -15,10 +15,10 @@ class Conversation(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    listing = relationship("Listing", backref="conversations")
+    listing = relationship("Listing", backref=backref("conversations", cascade="all, delete-orphan"))
     buyer = relationship("User", foreign_keys=[buyer_id], backref="buyer_conversations")
     seller = relationship("User", foreign_keys=[seller_id], backref="seller_conversations")
-    messages = relationship("Message", back_populates="conversation", order_by="Message.created_at")
+    messages = relationship("Message", back_populates="conversation", order_by="Message.created_at", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_conversation_buyer_seller_listing", "buyer_id", "seller_id", "listing_id", unique=True),

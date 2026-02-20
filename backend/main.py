@@ -3,6 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import uvicorn
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from . import models, schemas
 from .auth import authenticate_user, create_access_token, get_password_hash, get_current_user
@@ -17,7 +21,7 @@ app = FastAPI(title="Exo Exchange API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
