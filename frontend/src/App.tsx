@@ -7,6 +7,9 @@ import {
   RegisterPage,
   NewListingPage,
   ListingDetailPage,
+  ChatPage,
+  ChatListPage,
+  EditListingPage,
 } from './pages'
 
 function useAuth(): [{ token: string | null }, (token: string | null) => void] {
@@ -47,6 +50,12 @@ function Layout({
               Home
             </NavLink>
             <NavLink to="/listings/new">Post ad</NavLink>
+            {authed && (
+              <NavLink to="/messages" className="nav-messages-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                Messages
+              </NavLink>
+            )}
             {!authed ? (
               <>
                 <NavLink to="/login">Login</NavLink>
@@ -74,14 +83,17 @@ function App() {
   return (
     <Layout authed={!!auth.token} onLogout={handleLogout}>
       <Routes>
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<HomePage token={auth.token} />} />
         <Route path="/login" element={<LoginPage onLogin={setAuth} />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route
           path="/listings/new"
           element={<NewListingPage token={auth.token} />}
         />
-        <Route path="/listings/:id" element={<ListingDetailPage />} />
+        <Route path="/listings/edit/:id" element={<EditListingPage token={auth.token} />} />
+        <Route path="/listings/:id" element={<ListingDetailPage token={auth.token} />} />
+        <Route path="/messages" element={<ChatListPage token={auth.token} />} />
+        <Route path="/chat/:conversationId" element={<ChatPage token={auth.token} />} />
       </Routes>
     </Layout>
   )

@@ -4,11 +4,14 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import uvicorn
 
-from . import models, schemas 
+from . import models, schemas
 from .auth import authenticate_user, create_access_token, get_password_hash, get_current_user
 from .database import engine, Base, get_db
+from . import chat_models  # import so tables get created
+from .chat_routes import router as chat_router
 
 models.Base.metadata.create_all(bind=engine)
+chat_models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Exo Exchange API")
 
@@ -19,6 +22,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register chat router
+app.include_router(chat_router)
 
 
 
@@ -61,14 +67,17 @@ def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+@app.get("/auth/me", response_model=schemas.User)
+def get_me(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+
 @app.post("/listings", response_model=schemas.Listing, status_code=status.HTTP_201_CREATED)
 def create_listing(
     payload: schemas.ListingCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    print("🔥 Current user:", current_user)
-    print("🔥 Payload:", payload)
     listing = models.Listing(**payload.dict(), owner_id=current_user.id)
     db.add(listing)
     db.commit()
@@ -93,6 +102,44 @@ def get_listing(listing_id: int, db: Session = Depends(get_db)):
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
     return listing
+
+
+@app.put("/listings/{listing_id}", response_model=schemas.Listing)
+def update_listing(
+    listing_id: int,
+    payload: schemas.ListingCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this listing")
+
+    for key, value in payload.dict().items():
+        setattr(listing, key, value)
+
+    db.commit()
+    db.refresh(listing)
+    return listing
+
+
+@app.delete("/listings/{listing_id}")
+def delete_listing(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this listing")
+
+    db.delete(listing)
+    db.commit()
+    return {"status": "ok", "message": "Listing deleted"}
 
 
 if __name__ == "__main__":

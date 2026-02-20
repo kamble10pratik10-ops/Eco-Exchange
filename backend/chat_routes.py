@@ -1,0 +1,352 @@
+import os
+import json
+from datetime import datetime, timezone
+from typing import Dict, Set
+
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, status
+from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_, func, desc
+
+from .database import get_db
+from .auth import get_current_user, SECRET_KEY, ALGORITHM
+from . import models
+from .chat_models import Conversation, Message
+from .chat_schemas import (
+    ConversationCreate,
+    ConversationOut,
+    ConversationDetail,
+    MessageCreate,
+    MessageOut,
+    UserMini,
+    ListingMini,
+)
+
+from jose import jwt, JWTError
+
+router = APIRouter(prefix="/chat", tags=["chat"])
+
+# ─── WebSocket connection manager ───
+
+class ConnectionManager:
+    """Manages active WebSocket connections per user."""
+
+    def __init__(self):
+        # user_id -> set of WebSocket connections (multiple tabs)
+        self.active_connections: Dict[int, Set[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: int):
+        await websocket.accept()
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = set()
+        self.active_connections[user_id].add(websocket)
+
+    def disconnect(self, websocket: WebSocket, user_id: int):
+        if user_id in self.active_connections:
+            self.active_connections[user_id].discard(websocket)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+
+    async def send_to_user(self, user_id: int, message: dict):
+        if user_id in self.active_connections:
+            dead = []
+            for ws in self.active_connections[user_id]:
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                self.active_connections[user_id].discard(ws)
+
+    def is_online(self, user_id: int) -> bool:
+        return user_id in self.active_connections and len(self.active_connections[user_id]) > 0
+
+
+manager = ConnectionManager()
+
+
+# ─── Helper: authenticate WebSocket via token query param ───
+
+def ws_authenticate(token: str, db: Session) -> models.User:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+    except (JWTError, Exception):
+        return None
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    return user
+
+
+# ─── WebSocket endpoint ───
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, token: str = ""):
+    db = next(get_db())
+    user = ws_authenticate(token, db)
+    if not user:
+        await websocket.close(code=4001)
+        db.close()
+        return
+
+    await manager.connect(websocket, user.id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            action = data.get("action")
+
+            if action == "send_message":
+                conv_id = data.get("conversation_id")
+                content = data.get("content")
+                attachment_url = data.get("attachment_url")
+                attachment_type = data.get("attachment_type")
+                attachment_public_id = data.get("attachment_public_id")
+
+                # Validate conversation exists and user is a participant
+                conv = db.query(Conversation).filter(Conversation.id == conv_id).first()
+                if not conv or (user.id != conv.buyer_id and user.id != conv.seller_id):
+                    await websocket.send_json({"error": "Invalid conversation"})
+                    continue
+
+                # Create message
+                msg = Message(
+                    conversation_id=conv_id,
+                    sender_id=user.id,
+                    content=content,
+                    attachment_url=attachment_url,
+                    attachment_type=attachment_type,
+                    attachment_public_id=attachment_public_id,
+                )
+                db.add(msg)
+                conv.updated_at = datetime.now(timezone.utc)
+                db.commit()
+                db.refresh(msg)
+
+                msg_data = {
+                    "type": "new_message",
+                    "message": {
+                        "id": msg.id,
+                        "conversation_id": msg.conversation_id,
+                        "sender_id": msg.sender_id,
+                        "content": msg.content,
+                        "attachment_url": msg.attachment_url,
+                        "attachment_type": msg.attachment_type,
+                        "attachment_public_id": msg.attachment_public_id,
+                        "is_read": msg.is_read,
+                        "created_at": msg.created_at.isoformat(),
+                    },
+                }
+
+                # Send to both participants
+                other_id = conv.seller_id if user.id == conv.buyer_id else conv.buyer_id
+                await manager.send_to_user(user.id, msg_data)
+                await manager.send_to_user(other_id, msg_data)
+
+            elif action == "mark_read":
+                conv_id = data.get("conversation_id")
+                conv = db.query(Conversation).filter(Conversation.id == conv_id).first()
+                if conv and (user.id == conv.buyer_id or user.id == conv.seller_id):
+                    db.query(Message).filter(
+                        Message.conversation_id == conv_id,
+                        Message.sender_id != user.id,
+                        Message.is_read == False,
+                    ).update({"is_read": True})
+                    db.commit()
+                    await websocket.send_json({"type": "messages_read", "conversation_id": conv_id})
+
+            elif action == "typing":
+                conv_id = data.get("conversation_id")
+                conv = db.query(Conversation).filter(Conversation.id == conv_id).first()
+                if conv:
+                    other_id = conv.seller_id if user.id == conv.buyer_id else conv.buyer_id
+                    await manager.send_to_user(other_id, {
+                        "type": "typing",
+                        "conversation_id": conv_id,
+                        "user_id": user.id,
+                    })
+
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user.id)
+    except Exception:
+        manager.disconnect(websocket, user.id)
+    finally:
+        db.close()
+
+
+# ─── REST endpoints ───
+
+@router.post("/conversations", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
+def create_or_get_conversation(
+    payload: ConversationCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Create a conversation for a listing, or return existing one."""
+    listing = db.query(models.Listing).filter(models.Listing.id == payload.listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.owner_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot chat with yourself")
+
+    # Check if conversation already exists
+    existing = db.query(Conversation).filter(
+        Conversation.listing_id == payload.listing_id,
+        Conversation.buyer_id == current_user.id,
+        Conversation.seller_id == listing.owner_id,
+    ).first()
+
+    if existing:
+        return _build_conversation_out(existing, current_user.id, db)
+
+    conv = Conversation(
+        listing_id=payload.listing_id,
+        buyer_id=current_user.id,
+        seller_id=listing.owner_id,
+    )
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return _build_conversation_out(conv, current_user.id, db)
+
+
+@router.get("/conversations", response_model=list[ConversationOut])
+def list_conversations(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """List all conversations for the current user."""
+    convos = (
+        db.query(Conversation)
+        .filter(or_(Conversation.buyer_id == current_user.id, Conversation.seller_id == current_user.id))
+        .order_by(desc(Conversation.updated_at))
+        .all()
+    )
+    return [_build_conversation_out(c, current_user.id, db) for c in convos]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
+def get_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Get a conversation with all messages."""
+    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if current_user.id not in (conv.buyer_id, conv.seller_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Mark messages as read
+    db.query(Message).filter(
+        Message.conversation_id == conversation_id,
+        Message.sender_id != current_user.id,
+        Message.is_read == False,
+    ).update({"is_read": True})
+    db.commit()
+
+    return conv
+
+
+@router.post("/conversations/{conversation_id}/messages", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
+def send_message(
+    conversation_id: int,
+    payload: MessageCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Send a message in a conversation (REST fallback)."""
+    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if current_user.id not in (conv.buyer_id, conv.seller_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    msg = Message(
+        conversation_id=conversation_id,
+        sender_id=current_user.id,
+        content=payload.content,
+        attachment_url=payload.attachment_url,
+        attachment_type=payload.attachment_type,
+        attachment_public_id=payload.attachment_public_id,
+    )
+    db.add(msg)
+    conv.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(msg)
+    return msg
+
+
+@router.post("/upload")
+async def upload_attachment(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Upload an image or video to Cloudinary."""
+    try:
+        import cloudinary
+        import cloudinary.uploader
+
+        # Configure Cloudinary (reads from env vars)
+        cloudinary.config(
+            cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
+            api_key=os.environ.get("CLOUDINARY_API_KEY", ""),
+            api_secret=os.environ.get("CLOUDINARY_API_SECRET", ""),
+        )
+
+        # Determine resource type
+        content_type = file.content_type or ""
+        if content_type.startswith("video"):
+            resource_type = "video"
+        else:
+            resource_type = "image"
+
+        result = cloudinary.uploader.upload(
+            file.file,
+            folder="exo_exchange_chat",
+            resource_type=resource_type,
+        )
+
+        return {
+            "url": result["secure_url"],
+            "public_id": result["public_id"],
+            "resource_type": resource_type,
+        }
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Cloudinary not configured. Install cloudinary package.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+# ─── Helpers ───
+
+def _build_conversation_out(conv: Conversation, current_user_id: int, db: Session) -> dict:
+    """Build ConversationOut with last_message and unread_count."""
+    last_msg = (
+        db.query(Message)
+        .filter(Message.conversation_id == conv.id)
+        .order_by(desc(Message.created_at))
+        .first()
+    )
+
+    unread = (
+        db.query(func.count(Message.id))
+        .filter(
+            Message.conversation_id == conv.id,
+            Message.sender_id != current_user_id,
+            Message.is_read == False,
+        )
+        .scalar()
+    )
+
+    return ConversationOut(
+        id=conv.id,
+        listing_id=conv.listing_id,
+        buyer_id=conv.buyer_id,
+        seller_id=conv.seller_id,
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
+        buyer=UserMini.from_orm(conv.buyer),
+        seller=UserMini.from_orm(conv.seller),
+        listing=ListingMini.from_orm(conv.listing),
+        last_message=MessageOut.from_orm(last_msg) if last_msg else None,
+        unread_count=unread or 0,
+    )
