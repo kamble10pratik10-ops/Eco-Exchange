@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -13,6 +14,8 @@ from .auth import authenticate_user, create_access_token, get_password_hash, get
 from .database import engine, Base, get_db
 from . import chat_models  # import so tables get created
 from .chat_routes import router as chat_router
+from .search_engine import semantic_search, invalidate_listing, preload_models
+import threading
 
 models.Base.metadata.create_all(bind=engine)
 chat_models.Base.metadata.create_all(bind=engine)
@@ -27,9 +30,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- GLOBAL ERROR CATCHER ---
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    err_detail = traceback.format_exc()
+    print(f"\n{'!'*20}\nGLOBAL UNCAUGHT ERROR:\n{err_detail}\n{'!'*20}\n", flush=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc)}
+    )
+
 # Register chat router
 app.include_router(chat_router)
 
+@app.on_event("startup")
+def startup_event():
+    # Load models synchronously (no thread) to avoid silent crashes
+    preload_models()
 
 
 @app.get("/health")
@@ -82,22 +100,46 @@ def create_listing(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    listing = models.Listing(**payload.dict(), owner_id=current_user.id)
-    db.add(listing)
-    db.commit()
-    db.refresh(listing)
-    return listing
+    print(f"--> API REQUEST: Creating listing '{payload.title}'", flush=True)
+    try:
+        listing = models.Listing(**payload.dict(), owner_id=current_user.id)
+        db.add(listing)
+        db.commit()
+        db.refresh(listing)
+        print(f"--> SUCCESS: Listing {listing.id} created in DB", flush=True)
+        
+        try:
+            # Invalidate query cache so new listing is immediately searchable
+            invalidate_listing(listing.id)
+            print(f"--> [DEBUG] Cache invalidated for {listing.id}", flush=True)
+        except Exception as cache_err:
+            print(f"!!! WARNING: Cache invalidation failed: {cache_err}", flush=True)
+            # We don't want to fail the whole request just because cache clearing failed
+            
+        return listing
+    except Exception as e:
+        import traceback
+        print(f"!!! ERROR in create_listing:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/listings", response_model=list[schemas.Listing])
 def list_listings(skip: int = 0, limit: int = 20, db: Session = Depends(get_db)):
-    return (
-        db.query(models.Listing)
-        .filter(models.Listing.is_active == True)  # noqa: E712
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    print(f"--> API REQUEST: Fetching listings (skip={skip}, limit={limit})", flush=True)
+    try:
+        items = (
+            db.query(models.Listing)
+            .filter(models.Listing.is_active == True)  # noqa: E712
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+        print(f"--> SUCCESS: Found {len(items)} active listings", flush=True)
+        return items
+    except Exception as e:
+        import traceback
+        print(f"!!! ERROR in list_listings:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/listings/{listing_id}", response_model=schemas.Listing)
@@ -115,18 +157,30 @@ def update_listing(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to update this listing")
+    print(f"--> API REQUEST: Updating listing {listing_id}", flush=True)
+    try:
+        listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+        if not listing:
+            raise HTTPException(status_code=404, detail="Listing not found")
+        if listing.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to update this listing")
 
-    for key, value in payload.dict().items():
-        setattr(listing, key, value)
+        for key, value in payload.dict().items():
+            setattr(listing, key, value)
 
-    db.commit()
-    db.refresh(listing)
-    return listing
+        db.commit()
+        db.refresh(listing)
+        
+        try:
+            invalidate_listing(listing.id)
+        except Exception as cache_err:
+            print(f"!!! WARNING: Cache invalidation failed: {cache_err}", flush=True)
+            
+        return listing
+    except Exception as e:
+        import traceback
+        print(f"!!! ERROR in update_listing:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/listings/{listing_id}")
@@ -135,16 +189,82 @@ def delete_listing(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this listing")
+    print(f"--> API REQUEST: Deleting listing {listing_id}", flush=True)
+    try:
+        listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+        if not listing:
+            raise HTTPException(status_code=404, detail="Listing not found")
+        if listing.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this listing")
 
-    db.delete(listing)
-    db.commit()
-    return {"status": "ok", "message": "Listing deleted"}
+        lid = listing.id
+        db.delete(listing)
+        db.commit()
+        
+        try:
+            invalidate_listing(lid)
+        except Exception as cache_err:
+            print(f"!!! WARNING: Cache invalidation failed: {cache_err}", flush=True)
+            
+        return {"status": "ok", "message": "Listing deleted"}
+    except Exception as e:
+        import traceback
+        print(f"!!! ERROR in delete_listing:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Semantic Search Endpoint
+# ──────────────────────────────────────────────────────────────────────
+
+@app.get("/search")
+def search_listings(
+    q: str,
+    top_k: int = 20,
+    min_score: float = 0.35,
+    db: Session = Depends(get_db),
+):
+    """Simple debug search endpoint."""
+    print(f"\n--> API REQUEST: /search?q={q}", flush=True)
+    
+    if not q.strip():
+        return {"results": [], "total": 0}
+
+    print(f"--> [DEBUG] Calling search_engine.semantic_search...", flush=True)
+    try:
+        # 1. Call search engine
+        raw = semantic_search(query=q.strip(), db=db, top_k=top_k)
+        
+        # 2. Precise Validation using Schemas
+        results = []
+        for r in raw:
+            try:
+                # Convert SQLAlchemy model to Pydantic
+                listing_schema = schemas.Listing.model_validate(r["listing"])
+                results.append(
+                    schemas.SearchResult(
+                        listing=listing_schema,
+                        score=r["score"],
+                        match_type=r.get("match_type", "semantic")
+                    )
+                )
+            except Exception as val_err:
+                print(f"--> [DEBUG] Skipping one result due to validation error: {val_err}", flush=True)
+                continue
+            
+        print(f"--> SUCCESS: Validated {len(results)} results for frontend.", flush=True)
+        return schemas.SearchResponse(
+            query=q.strip(),
+            total=len(results),
+            results=results
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"!!! CRITICAL API ERROR in search_listings:\n{traceback.format_exc()}", flush=True)
+        return JSONResponse(status_code=500, content={"error": "Search failed", "detail": str(e)})
 
 
 if __name__ == "__main__":
-    uvicorn.run("backend.main:app", host="127.0.0.1", port=8000, reload=True)
+    # Use app object directly and disable reload for maximum stability
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="debug")

@@ -41,6 +41,24 @@ class Listing(ListingBase):
         from_attributes = True
 
 
+class SearchResult(BaseModel):
+    listing: "Listing"
+    score: float
+    dense: Optional[float] = None
+    bm25: Optional[float] = None
+    prefix: Optional[float] = None
+    match_type: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SearchResponse(BaseModel):
+    query: str
+    total: int
+    results: List["SearchResult"]
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"

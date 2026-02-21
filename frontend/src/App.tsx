@@ -1,4 +1,4 @@
-import { Link, NavLink, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import './App.css'
 import { useState } from 'react'
 import {
@@ -10,6 +10,7 @@ import {
   ChatPage,
   ChatListPage,
   EditListingPage,
+  SearchPage,
 } from './pages'
 
 function useAuth(): [{ token: string | null }, (token: string | null) => void] {
@@ -29,6 +30,36 @@ function useAuth(): [{ token: string | null }, (token: string | null) => void] {
   return [{ token }, update]
 }
 
+function HeaderSearchBar() {
+  const [q, setQ] = useState('')
+  const navigate = useNavigate()
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`)
+  }
+
+  return (
+    <form className="header-search-form" onSubmit={handleSubmit} role="search">
+      <div className="header-search-wrap">
+        <svg className="header-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          id="header-search-input"
+          type="text"
+          className="header-search-input"
+          placeholder="Search listings…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          aria-label="Quick search"
+          autoComplete="off"
+        />
+      </div>
+    </form>
+  )
+}
+
 function Layout({
   children,
   authed,
@@ -45,9 +76,13 @@ function Layout({
           <Link to="/" className="logo-text">
             Exo Exchange
           </Link>
+          <HeaderSearchBar />
           <nav className="nav">
             <NavLink to="/" end>
               Home
+            </NavLink>
+            <NavLink to="/search">
+              🔍 Search
             </NavLink>
             <NavLink to="/listings/new">Posts</NavLink>
             {authed && (
@@ -93,6 +128,7 @@ function App() {
         <Route path="/listings/:id" element={<ListingDetailPage token={auth.token} />} />
         <Route path="/messages" element={<ChatListPage token={auth.token} />} />
         <Route path="/chat/:conversationId" element={<ChatPage token={auth.token} />} />
+        <Route path="/search" element={<SearchPage token={auth.token} />} />
       </Routes>
     </Layout>
   )
