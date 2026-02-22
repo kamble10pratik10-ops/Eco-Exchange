@@ -3,6 +3,11 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 
 const API_URL = 'http://127.0.0.1:8000'
 
+type ProductImage = {
+    id: number
+    url: string
+}
+
 type Listing = {
     id: number
     title: string
@@ -10,6 +15,7 @@ type Listing = {
     price: number
     category?: string | null
     city?: string | null
+    images: ProductImage[]
     is_active: boolean
     owner_id: number
 }
@@ -110,7 +116,10 @@ export default function SearchPage({ token }: { token: string | null }) {
 
         try {
             const url = `${API_URL}/search?q=${encodeURIComponent(q.trim())}&top_k=30`
-            const res = await fetch(url, { signal: ctrl.signal })
+            const res = await fetch(url, {
+                signal: ctrl.signal,
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            })
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}))
                 throw new Error(data.detail ?? 'Search failed')
@@ -171,21 +180,6 @@ export default function SearchPage({ token }: { token: string | null }) {
         } else {
             setSuggestions(EXAMPLE_QUERIES)
             setShowSuggestions(true)
-        }
-    }
-
-    const handleDelete = async (id: number) => {
-        if (!token) return
-        if (!window.confirm('Delete this listing?')) return
-        try {
-            const res = await fetch(`${API_URL}/listings/${id}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!res.ok) throw new Error('Delete failed')
-            setResults((prev) => prev.filter((r) => r.listing.id !== id))
-        } catch (e: any) {
-            alert(e.message)
         }
     }
 
@@ -346,6 +340,20 @@ export default function SearchPage({ token }: { token: string | null }) {
                                         </div>
                                         <Link to={`/listings/${item.id}`} className="src-link">
                                             <article className="src-body">
+                                                {item.images && item.images.length > 0 ? (
+                                                    <img
+                                                        src={item.images[0].url}
+                                                        alt={item.title}
+                                                        className="listing-card-image"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x200?text=No+Image'
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="listing-card-no-image">
+                                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                                                    </div>
+                                                )}
                                                 <div className="src-title-row">
                                                     <h3 className="src-title">{item.title}</h3>
                                                     <MatchTypePill type={match_type} />

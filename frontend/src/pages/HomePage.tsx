@@ -3,6 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 
 const API_URL = 'http://127.0.0.1:8000'
 
+type ProductImage = {
+  id: number
+  url: string
+}
+
 type Listing = {
   id: number
   title: string
@@ -12,6 +17,7 @@ type Listing = {
   city?: string | null
   is_active: boolean
   owner_id: number
+  images: ProductImage[]
 }
 
 export default function HomePage({ token }: { token: string | null }) {
@@ -26,7 +32,9 @@ export default function HomePage({ token }: { token: string | null }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`${API_URL}/listings`)
+        const res = await fetch(`${API_URL}/listings`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
         if (!res.ok) throw new Error('Failed to load listings')
         const data = (await res.json()) as Listing[]
         setListings(data)
@@ -37,7 +45,7 @@ export default function HomePage({ token }: { token: string | null }) {
       }
     }
     load()
-  }, [])
+  }, [token])
 
   useEffect(() => {
     if (token) {
@@ -102,6 +110,20 @@ export default function HomePage({ token }: { token: string | null }) {
                 className="listing-card-link"
               >
                 <article className="listing-card">
+                  {item.images && item.images.length > 0 ? (
+                    <img
+                      src={item.images[0].url}
+                      alt={item.title}
+                      className="listing-card-image"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x200?text=No+Image'
+                      }}
+                    />
+                  ) : (
+                    <div className="listing-card-no-image">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                    </div>
+                  )}
                   <header>
                     <h3>{item.title}</h3>
                   </header>
@@ -109,8 +131,8 @@ export default function HomePage({ token }: { token: string | null }) {
                     {item.category || 'General'} · {item.city || 'Unknown city'}
                   </p>
                   <p className="description">
-                    {item.description.length > 120
-                      ? item.description.slice(0, 120) + '...'
+                    {item.description.length > 80
+                      ? item.description.slice(0, 80) + '...'
                       : item.description}
                   </p>
                   <div className="card-footer">

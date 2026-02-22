@@ -20,6 +20,15 @@ class User(UserBase):
 
 
 
+class ProductImage(BaseModel):
+    id: int
+    url: str
+    listing_id: int
+
+    class Config:
+        from_attributes = True
+
+
 class ListingBase(BaseModel):
     title: str
     description: str
@@ -29,13 +38,14 @@ class ListingBase(BaseModel):
 
 
 class ListingCreate(ListingBase):
-    pass
+    image_urls: List[str] = []
 
 
 class Listing(ListingBase):
     id: int
     is_active: bool
     owner_id: int
+    images: List[ProductImage] = []
 
     class Config:
         from_attributes = True

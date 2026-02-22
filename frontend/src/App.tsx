@@ -1,4 +1,4 @@
-import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Route, Routes, useNavigate, Navigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { useState } from 'react'
 import {
@@ -60,6 +60,14 @@ function HeaderSearchBar() {
   )
 }
 
+function ProtectedRoute({ children, token }: { children: React.ReactNode; token: string | null }) {
+  const location = useLocation()
+  if (!token) {
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+  return <>{children}</>
+}
+
 function Layout({
   children,
   authed,
@@ -76,20 +84,22 @@ function Layout({
           <Link to="/" className="logo-text">
             Exo Exchange
           </Link>
-          <HeaderSearchBar />
+          {authed && <HeaderSearchBar />}
           <nav className="nav">
-            <NavLink to="/" end>
-              Home
-            </NavLink>
-            <NavLink to="/search">
-              🔍 Search
-            </NavLink>
-            <NavLink to="/listings/new">Posts</NavLink>
             {authed && (
-              <NavLink to="/messages" className="nav-messages-link">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                Messages
-              </NavLink>
+              <>
+                <NavLink to="/" end>
+                  Home
+                </NavLink>
+                <NavLink to="/search">
+                  🔍 Search
+                </NavLink>
+                <NavLink to="/listings/new">Posts</NavLink>
+                <NavLink to="/messages" className="nav-messages-link">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                  Messages
+                </NavLink>
+              </>
             )}
             {!authed ? (
               <>
@@ -117,18 +127,47 @@ function App() {
   return (
     <Layout authed={!!auth.token} onLogout={handleLogout}>
       <Routes>
-        <Route path="/" element={<HomePage token={auth.token} />} />
         <Route path="/login" element={<LoginPage onLogin={setAuth} />} />
         <Route path="/register" element={<RegisterPage />} />
+
+        <Route path="/" element={
+          <ProtectedRoute token={auth.token}>
+            <HomePage token={auth.token} />
+          </ProtectedRoute>
+        } />
         <Route
           path="/listings/new"
-          element={<NewListingPage token={auth.token} />}
+          element={
+            <ProtectedRoute token={auth.token}>
+              <NewListingPage token={auth.token} />
+            </ProtectedRoute>
+          }
         />
-        <Route path="/listings/edit/:id" element={<EditListingPage token={auth.token} />} />
-        <Route path="/listings/:id" element={<ListingDetailPage token={auth.token} />} />
-        <Route path="/messages" element={<ChatListPage token={auth.token} />} />
-        <Route path="/chat/:conversationId" element={<ChatPage token={auth.token} />} />
-        <Route path="/search" element={<SearchPage token={auth.token} />} />
+        <Route path="/listings/edit/:id" element={
+          <ProtectedRoute token={auth.token}>
+            <EditListingPage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/listings/:id" element={
+          <ProtectedRoute token={auth.token}>
+            <ListingDetailPage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/messages" element={
+          <ProtectedRoute token={auth.token}>
+            <ChatListPage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/chat/:conversationId" element={
+          <ProtectedRoute token={auth.token}>
+            <ChatPage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/search" element={
+          <ProtectedRoute token={auth.token}>
+            <SearchPage token={auth.token} />
+          </ProtectedRoute>
+        } />
       </Routes>
     </Layout>
   )

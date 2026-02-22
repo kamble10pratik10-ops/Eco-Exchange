@@ -3,6 +3,11 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 
 const API_URL = 'http://127.0.0.1:8000'
 
+type ProductImage = {
+    id: number
+    url: string
+}
+
 type Listing = {
     id: number
     title: string
@@ -10,6 +15,7 @@ type Listing = {
     price: number
     category?: string | null
     city?: string | null
+    images: ProductImage[]
     is_active: boolean
     owner_id: number
 }
@@ -22,17 +28,23 @@ export default function ListingDetailPage({ token }: { token?: string | null }) 
     const [error, setError] = useState<string | null>(null)
     const [chatLoading, setChatLoading] = useState(false)
     const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+    const [mainImage, setMainImage] = useState<string | null>(null)
 
     useEffect(() => {
         const load = async () => {
             try {
-                const res = await fetch(`${API_URL}/listings/${id}`)
+                const res = await fetch(`${API_URL}/listings/${id}`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                })
                 if (!res.ok) {
                     if (res.status === 404) throw new Error('Listing not found')
                     throw new Error('Failed to load listing')
                 }
                 const data = (await res.json()) as Listing
                 setListing(data)
+                if (data.images && data.images.length > 0) {
+                    setMainImage(data.images[0].url)
+                }
             } catch (e: any) {
                 setError(e.message ?? 'Error loading listing')
             } finally {
@@ -40,7 +52,7 @@ export default function ListingDetailPage({ token }: { token?: string | null }) 
             }
         }
         load()
-    }, [id])
+    }, [id, token])
 
     // Get current user
     useEffect(() => {
@@ -99,6 +111,26 @@ export default function ListingDetailPage({ token }: { token?: string | null }) 
             </Link>
 
             <div className="detail-card">
+                {mainImage && (
+                    <div className="detail-image-wrapper">
+                        <div className="detail-image-container">
+                            <img src={mainImage} alt={listing.title} className="detail-image" />
+                        </div>
+                        {listing.images.length > 1 && (
+                            <div className="detail-thumbnails">
+                                {listing.images.map((img) => (
+                                    <div
+                                        key={img.id}
+                                        className={`thumbnail-item ${mainImage === img.url ? 'active' : ''}`}
+                                        onClick={() => setMainImage(img.url)}
+                                    >
+                                        <img src={img.url} alt="Thumbnail" />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className="detail-header">
                     <h2>{listing.title}</h2>
                     <span className="detail-price">₹{listing.price.toLocaleString()}</span>

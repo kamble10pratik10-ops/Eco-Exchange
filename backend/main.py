@@ -102,11 +102,23 @@ def create_listing(
 ):
     print(f"--> API REQUEST: Creating listing '{payload.title}'", flush=True)
     try:
-        listing = models.Listing(**payload.dict(), owner_id=current_user.id)
+        data = payload.dict()
+        image_urls = data.pop("image_urls", [])
+        
+        listing = models.Listing(**data, owner_id=current_user.id)
         db.add(listing)
         db.commit()
         db.refresh(listing)
-        print(f"--> SUCCESS: Listing {listing.id} created in DB", flush=True)
+        
+        # Add primary image records
+        for url in image_urls:
+            product_image = models.ProductImage(url=url, listing_id=listing.id)
+            db.add(product_image)
+        
+        db.commit()
+        db.refresh(listing)
+        
+        print(f"--> SUCCESS: Listing {listing.id} created in DB with {len(image_urls)} images", flush=True)
         
         try:
             # Invalidate query cache so new listing is immediately searchable
@@ -114,7 +126,6 @@ def create_listing(
             print(f"--> [DEBUG] Cache invalidated for {listing.id}", flush=True)
         except Exception as cache_err:
             print(f"!!! WARNING: Cache invalidation failed: {cache_err}", flush=True)
-            # We don't want to fail the whole request just because cache clearing failed
             
         return listing
     except Exception as e:
@@ -124,7 +135,12 @@ def create_listing(
 
 
 @app.get("/listings", response_model=list[schemas.Listing])
-def list_listings(skip: int = 0, limit: int = 20, db: Session = Depends(get_db)):
+def list_listings(
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     print(f"--> API REQUEST: Fetching listings (skip={skip}, limit={limit})", flush=True)
     try:
         items = (
@@ -143,7 +159,11 @@ def list_listings(skip: int = 0, limit: int = 20, db: Session = Depends(get_db))
 
 
 @app.get("/listings/{listing_id}", response_model=schemas.Listing)
-def get_listing(listing_id: int, db: Session = Depends(get_db)):
+def get_listing(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -165,16 +185,25 @@ def update_listing(
         if listing.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Not authorized to update this listing")
 
-        for key, value in payload.dict().items():
+        data = payload.dict()
+        image_urls = data.pop("image_urls", [])
+
+        for key, value in data.items():
             setattr(listing, key, value)
+
+        # Update images: Simple approach - remove old and add new
+        db.query(models.ProductImage).filter(models.ProductImage.listing_id == listing_id).delete()
+        for url in image_urls:
+            product_image = models.ProductImage(url=url, listing_id=listing.id)
+            db.add(product_image)
 
         db.commit()
         db.refresh(listing)
         
         try:
-            invalidate_listing(listing.id)
-        except Exception as cache_err:
-            print(f"!!! WARNING: Cache invalidation failed: {cache_err}", flush=True)
+            invalidate_listing(listing_id)
+        except:
+            pass
             
         return listing
     except Exception as e:
@@ -223,6 +252,7 @@ def search_listings(
     top_k: int = 20,
     min_score: float = 0.35,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Simple debug search endpoint."""
     print(f"\n--> API REQUEST: /search?q={q}", flush=True)
