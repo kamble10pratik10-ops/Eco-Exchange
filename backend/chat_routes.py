@@ -338,7 +338,39 @@ async def upload_attachment(
         raise HTTPException(status_code=500, detail="Cloudinary package not installed.")
     except Exception as e:
         print(f"UPLOAD ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+@router.get("/cloudinary-signature")
+def get_cloudinary_signature(
+    current_user: models.User = Depends(get_current_user),
+):
+    """Generate a signature for direct browser → Cloudinary uploads."""
+    try:
+        import time
+        import cloudinary.utils
+        
+        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME")
+        api_key = os.environ.get("CLOUDINARY_API_KEY")
+        api_secret = os.environ.get("CLOUDINARY_API_SECRET")
+
+        if not all([cloud_name, api_key, api_secret]):
+            raise HTTPException(status_code=500, detail="Cloudinary credentials missing")
+
+        timestamp = int(time.time())
+        params = {
+            "timestamp": timestamp,
+            "folder": "exo_exchange_listings",
+        }
+        
+        signature = cloudinary.utils.api_sign_request(params, api_secret)
+        
+        return {
+            "signature": signature,
+            "timestamp": timestamp,
+            "api_key": api_key,
+            "cloud_name": cloud_name,
+            "folder": "exo_exchange_listings"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ─── Helpers ───

@@ -11,6 +11,10 @@ import {
   ChatListPage,
   EditListingPage,
   SearchPage,
+  ProfilePage,
+  WishlistPage,
+  MyProfilePage,
+  VerifyEmailPage,
 } from './pages'
 
 function useAuth(): [{ token: string | null }, (token: string | null) => void] {
@@ -77,6 +81,8 @@ function Layout({
   authed: boolean
   onLogout: () => void
 }) {
+  const [profileOpen, setProfileOpen] = useState(false)
+
   return (
     <div className="app">
       <header className="app-header">
@@ -99,6 +105,25 @@ function Layout({
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
                   Messages
                 </NavLink>
+                <NavLink to="/wishlist">
+                  ❤️ Wishlist
+                </NavLink>
+                <div className="nav-dropdown-wrapper">
+                  <button
+                    className="nav-profile-btn"
+                    onClick={() => setProfileOpen(!profileOpen)}
+                  >
+                    👤 Profile
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" transform={profileOpen ? "rotate(180)" : ""}><path d="M6 9l6 6 6-6" /></svg>
+                  </button>
+                  {profileOpen && (
+                    <div className="nav-dropdown" onClick={() => setProfileOpen(false)}>
+                      <NavLink to="/my-profile" className="dropdown-item">My Profile</NavLink>
+                      <NavLink to="/profile" className="dropdown-item">Settings</NavLink>
+                      <button className="dropdown-item logout-item" onClick={onLogout}>Logout</button>
+                    </div>
+                  )}
+                </div>
               </>
             )}
             {!authed ? (
@@ -107,9 +132,7 @@ function Layout({
                 <NavLink to="/register">Register</NavLink>
               </>
             ) : (
-              <button className="link-button" onClick={onLogout}>
-                Logout
-              </button>
+              null
             )}
           </nav>
         </div>
@@ -129,6 +152,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage onLogin={setAuth} />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
         <Route path="/" element={
           <ProtectedRoute token={auth.token}>
@@ -166,6 +190,21 @@ function App() {
         <Route path="/search" element={
           <ProtectedRoute token={auth.token}>
             <SearchPage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/profile" element={
+          <ProtectedRoute token={auth.token}>
+            <ProfilePage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/my-profile" element={
+          <ProtectedRoute token={auth.token}>
+            <MyProfilePage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/wishlist" element={
+          <ProtectedRoute token={auth.token}>
+            <WishlistPage token={auth.token} />
           </ProtectedRoute>
         } />
       </Routes>

@@ -18,7 +18,6 @@ export default function EditListingPage({
     const [newImages, setNewImages] = useState<File[]>([])
     const [newPreviews, setNewPreviews] = useState<string[]>([])
     const [uploading, setUploading] = useState(false)
-    const [uploadIndex, setUploadIndex] = useState(0)
     const [loading, setLoading] = useState(false)
     const [initialLoading, setInitialLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -89,26 +88,42 @@ export default function EditListingPage({
         const finalUrls = [...existingUrls]
 
         try {
-            // 1. Upload new images
+            // 1. Upload new images in parallel
             if (newImages.length > 0) {
                 setUploading(true)
-                for (let i = 0; i < newImages.length; i++) {
-                    setUploadIndex(i + 1)
-                    const formData = new FormData()
-                    formData.append('file', newImages[i])
 
-                    const uploadRes = await fetch(`${API_URL}/chat/upload`, {
+                // Fetch signature from backend
+                const sigRes = await fetch(`${API_URL}/chat/cloudinary-signature`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+                if (!sigRes.ok) throw new Error('Could not get upload signature')
+                const sigData = await sigRes.json()
+
+                const uploadPromises = newImages.map(async (file) => {
+                    const formData = new FormData()
+                    formData.append('file', file)
+                    formData.append('api_key', sigData.api_key)
+                    formData.append('timestamp', sigData.timestamp)
+                    formData.append('signature', sigData.signature)
+                    formData.append('folder', sigData.folder)
+
+                    const res = await fetch(`https://api.cloudinary.com/v1_1/${sigData.cloud_name}/image/upload`, {
                         method: 'POST',
-                        headers: { 'Authorization': `Bearer ${token}` },
                         body: formData
                     })
 
-                    if (!uploadRes.ok) throw new Error('One or more images failed to upload')
-                    const uploadData = await uploadRes.json()
-                    finalUrls.push(uploadData.url)
-                }
+                    if (!res.ok) {
+                        const err = await res.json()
+                        throw new Error(err.error?.message || 'Direct upload failed')
+                    }
+                    const data = await res.json()
+                    return data.secure_url as string
+                })
+
+                const resUrls = await Promise.all(uploadPromises)
+                finalUrls.push(...resUrls)
+
                 setUploading(false)
-                setUploadIndex(0)
             }
 
             // 2. Update listing
@@ -248,7 +263,7 @@ export default function EditListingPage({
                 {error && <p className="error">{error}</p>}
                 {success && <p className="success">{success}</p>}
                 <button type="submit" disabled={loading || uploading}>
-                    {loading ? (uploading ? `Uploading image ${uploadIndex} of ${newImages.length}…` : 'Updating…') : 'Update ad'}
+                    {loading ? (uploading ? 'Uploading…' : 'Updating…') : 'Update ad'}
                 </button>
             </form>
         </section>

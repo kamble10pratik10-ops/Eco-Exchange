@@ -12,11 +12,28 @@ class UserCreate(UserBase):
     password: str
 
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
+
+
 class User(UserBase):
     id: int
+    is_verified: bool
 
     class Config:
         from_attributes = True
+
+
+class OTPRequest(BaseModel):
+    email: EmailStr
+
+
+class OTPVerify(BaseModel):
+    email: EmailStr
+    otp: str
 
 
 
@@ -76,3 +93,37 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     user_id: Optional[int] = None
+
+
+class WishlistItemBase(BaseModel):
+    listing_id: int
+
+
+class WishlistItem(WishlistItemBase):
+    id: int
+    user_id: int
+    listing: Listing
+
+    class Config:
+        from_attributes = True
+
+
+class OrderItem(BaseModel):
+    id: int
+    listing_id: int
+    price_at_order: float
+    listing: Listing
+
+    class Config:
+        from_attributes = True
+
+
+class Order(BaseModel):
+    id: int
+    user_id: int
+    total_amount: float
+    status: str
+    items: List[OrderItem]
+
+    class Config:
+        from_attributes = True

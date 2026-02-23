@@ -86,9 +86,11 @@ export default function SearchPage({ token }: { token: string | null }) {
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [wishlistIds, setWishlistIds] = useState<Set<number>>(new Set())
     const [searched, setSearched] = useState(false)
     const [suggestions, setSuggestions] = useState<string[]>([])
     const [showSuggestions, setShowSuggestions] = useState(false)
+    const [currentUserId, setCurrentUserId] = useState<number | null>(null)
     const inputRef = useRef<HTMLInputElement>(null)
     const abortRef = useRef<AbortController | null>(null)
 
@@ -101,7 +103,73 @@ export default function SearchPage({ token }: { token: string | null }) {
         'sports equipment cricket',
         'Sony headphones',
         'second hand bicycle',
+        'blue denim jacket',
     ]
+
+    const loadWishlist = useCallback(async () => {
+        if (!token) return
+        try {
+            const res = await fetch(`${API_URL}/wishlist`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+                const data = await res.json()
+                setWishlistIds(new Set(data.map((item: any) => item.listing_id)))
+            }
+        } catch (err) {
+            console.error('Failed to load wishlist:', err)
+        }
+    }, [token])
+
+    useEffect(() => {
+        loadWishlist()
+        if (token) {
+            fetch(`${API_URL}/auth/me`, {
+                headers: { Authorization: `Bearer ${token}` },
+            })
+                .then((r) => r.json())
+                .then((data) => setCurrentUserId(data.id))
+                .catch(() => { })
+        } else {
+            setCurrentUserId(null)
+        }
+    }, [loadWishlist, token])
+
+    const handleWishlistToggle = async (e: React.MouseEvent, listingId: number) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!token) {
+            navigate('/login')
+            return
+        }
+
+        const isInWishlist = wishlistIds.has(listingId)
+        try {
+            if (isInWishlist) {
+                const res = await fetch(`${API_URL}/wishlist/${listingId}`, {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                if (res.ok) {
+                    const newIds = new Set(wishlistIds)
+                    newIds.delete(listingId)
+                    setWishlistIds(newIds)
+                }
+            } else {
+                const res = await fetch(`${API_URL}/wishlist/${listingId}`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                if (res.ok) {
+                    const newIds = new Set(wishlistIds)
+                    newIds.add(listingId)
+                    setWishlistIds(newIds)
+                }
+            }
+        } catch (err) {
+            console.error('Wishlist error:', err)
+        }
+    }
 
     const doSearch = useCallback(async (q: string) => {
         if (!q.trim()) return
@@ -356,7 +424,18 @@ export default function SearchPage({ token }: { token: string | null }) {
                                                 )}
                                                 <div className="src-title-row">
                                                     <h3 className="src-title">{item.title}</h3>
-                                                    <MatchTypePill type={match_type} />
+                                                    <div className="src-title-actions">
+                                                        {currentUserId !== item.owner_id && (
+                                                            <button
+                                                                className={`card-wishlist-btn ${wishlistIds.has(item.id) ? 'active' : ''}`}
+                                                                onClick={(e) => handleWishlistToggle(e, item.id)}
+                                                                title={wishlistIds.has(item.id) ? "Remove from wishlist" : "Add to wishlist"}
+                                                            >
+                                                                <svg width="18" height="18" viewBox="0 0 24 24" fill={wishlistIds.has(item.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
+                                                            </button>
+                                                        )}
+                                                        <MatchTypePill type={match_type} />
+                                                    </div>
                                                 </div>
                                                 <p className="src-meta">
                                                     {item.category || 'General'} · {item.city || 'Unknown city'}

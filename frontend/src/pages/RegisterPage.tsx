@@ -28,8 +28,16 @@ export default function RegisterPage() {
                 const data = await res.json().catch(() => null)
                 throw new Error(data?.detail ?? 'Registration failed')
             }
-            setSuccess('Account created! Redirecting to login…')
-            setTimeout(() => navigate('/login'), 1200)
+
+            // Registration success - now request OTP
+            await fetch(`${API_URL}/auth/request-otp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email }),
+            })
+
+            setSuccess('Account created! Sending verification code…')
+            setTimeout(() => navigate('/verify-email', { state: { email } }), 1500)
         } catch (e: any) {
             setError(e.message ?? 'Registration failed')
         } finally {
