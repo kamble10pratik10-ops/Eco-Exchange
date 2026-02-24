@@ -24,7 +24,13 @@ export default function MyProfilePage({ token }: { token: string | null }) {
     const [listings, setListings] = useState<Listing[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [user, setUser] = useState<{ name: string; email: string } | null>(null)
+    const [user, setUser] = useState<{
+        name: string;
+        email: string;
+        profile_image_url?: string | null;
+        followers_count?: number;
+        following_count?: number;
+    } | null>(null)
 
     useEffect(() => {
         if (!token) return
@@ -63,13 +69,19 @@ export default function MyProfilePage({ token }: { token: string | null }) {
         <div className="my-profile-page">
             <header className="profile-hero">
                 <div className="profile-avatar-large">
-                    {user?.name?.charAt(0).toUpperCase() || 'U'}
+                    {user?.profile_image_url ? (
+                        <img src={user.profile_image_url} alt={user.name} />
+                    ) : (
+                        user?.name?.charAt(0).toUpperCase() || 'U'
+                    )}
                 </div>
                 <div className="profile-info-header">
                     <h1>{user?.name}</h1>
                     <p className="profile-email">{user?.email}</p>
                     <div className="profile-stats">
                         <span className="stat-item"><strong>{listings.length}</strong> Listings</span>
+                        <span className="stat-item"><strong>{user?.followers_count || 0}</strong> Followers</span>
+                        <span className="stat-item"><strong>{user?.following_count || 0}</strong> Following</span>
                     </div>
                 </div>
             </header>

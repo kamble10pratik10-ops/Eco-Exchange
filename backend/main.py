@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
-from typing import List
+from typing import List, Optional
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -31,7 +31,12 @@ app = FastAPI(title="Exo Exchange API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -197,7 +202,159 @@ def verify_otp(payload: schemas.OTPVerify, db: Session = Depends(get_db)):
 
 @app.get("/auth/me", response_model=schemas.User)
 def get_me(current_user: models.User = Depends(get_current_user)):
+    current_user.followers_count = len(current_user.followers)
+    current_user.following_count = len(current_user.following)
     return current_user
+
+
+@app.get("/auth/dashboard", response_model=schemas.DashboardStats)
+def get_dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    active_listings = [l for l in current_user.listings if l.is_active]
+    sold_listings = [l for l in current_user.listings if not l.is_active]
+    
+    total_value = sum(l.price for l in active_listings)
+    
+    # Unread messages in conversations participating in
+    unread_count = db.query(chat_models.Message).join(chat_models.Conversation).filter(
+        (chat_models.Conversation.buyer_id == current_user.id) | (chat_models.Conversation.seller_id == current_user.id),
+        chat_models.Message.sender_id != current_user.id,
+        chat_models.Message.is_read == False
+    ).count()
+
+    recent_activity = []
+    # Add recent listings as activity
+    user_listings = list(current_user.listings)
+    sorted_listings = sorted(user_listings, key=lambda x: x.id, reverse=True)[:3]
+    for l in sorted_listings:
+        recent_activity.append({
+            "type": "listing",
+            "title": f"Listing: {l.title}",
+            "timestamp": "Active",
+            "id": l.id
+        })
+
+    return {
+        "active_listings_count": len(active_listings),
+        "sold_listings_count": len(sold_listings),
+        "total_followers": len(current_user.followers),
+        "total_following": len(current_user.following),
+        "wishlist_count": len(current_user.wishlist_items),
+        "unread_messages_count": unread_count,
+        "total_listings_value": total_value,
+        "recent_activity": recent_activity
+    }
+
+
+@app.get("/users/{user_id}/profile", response_model=schemas.User)
+def get_user_profile(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Populate counts
+    user.followers_count = len(user.followers)
+    user.following_count = len(user.following)
+    return user
+
+
+@app.post("/users/{user_id}/follow", response_model=schemas.FollowStatus)
+def follow_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot follow yourself")
+    
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if already following
+    existing = db.query(models.Follow).filter(
+        models.Follow.follower_id == current_user.id,
+        models.Follow.followed_id == user_id
+    ).first()
+    
+    if not existing:
+        follow = models.Follow(
+            follower_id=current_user.id,
+            followed_id=user_id,
+            created_at=int(time.time())
+        )
+        db.add(follow)
+        db.commit()
+    
+    return {"is_following": True}
+
+
+@app.post("/users/{user_id}/unfollow", response_model=schemas.FollowStatus)
+def unfollow_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    follow = db.query(models.Follow).filter(
+        models.Follow.follower_id == current_user.id,
+        models.Follow.followed_id == user_id
+    ).first()
+    
+    if follow:
+        db.delete(follow)
+        db.commit()
+    
+    return {"is_following": False}
+
+
+@app.get("/users/{user_id}/follow-status", response_model=schemas.FollowStatus)
+def get_follow_status(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    follow = db.query(models.Follow).filter(
+        models.Follow.follower_id == current_user.id,
+        models.Follow.followed_id == user_id
+    ).first()
+    return {"is_following": follow is not None}
+
+
+@app.get("/users/{user_id}/followers", response_model=List[schemas.UserPublic])
+def get_followers(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user.followers
+
+
+@app.get("/users/{user_id}/following", response_model=List[schemas.UserPublic])
+def get_following(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user.following
+
+
+@app.get("/users/{user_id}/listings", response_model=List[schemas.Listing])
+def get_user_listings(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """Fetch listings belonging to a specific user."""
+    return db.query(models.Listing).filter(models.Listing.owner_id == user_id).all()
 
 
 @app.put("/auth/profile", response_model=schemas.User)
@@ -221,9 +378,17 @@ def update_profile(
         
     if payload.password:
         current_user.hashed_password = get_password_hash(payload.password)
+    
+    if payload.profile_image_url:
+        current_user.profile_image_url = payload.profile_image_url
         
     db.commit()
     db.refresh(current_user)
+        
+    # Populate counts
+    current_user.followers_count = len(current_user.followers)
+    current_user.following_count = len(current_user.following)
+    
     return current_user
 
 
@@ -271,19 +436,49 @@ def create_listing(
 def list_listings(
     skip: int = 0,
     limit: int = 20,
+    category: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    print(f"--> API REQUEST: Fetching listings (skip={skip}, limit={limit})", flush=True)
+    print(f"--> API REQUEST: Fetching listings (skip={skip}, limit={limit}, cat={category}, min={min_price}, max={max_price})", flush=True)
+    
+    # Category to Keyword mapping for smarter filtering
+    CATEGORY_KEYWORDS = {
+        "Electronics & Technology": ["mobile", "phone", "computer", "laptop", "camera", "accessory", "tech", "electronic", "gadget", "tablet", "watch"],
+        "Fashion & Apparel": ["clothing", "shoes", "accessory", "shirt", "pant", "dress", "watch", "bag", "wear"],
+        "Health, Personal Care": ["fitness", "equipment", "health", "care", "supplement", "gym", "workout"],
+        "Home, Kitchen & Furniture": ["home", "decor", "appliance", "furniture", "kitchen", "table", "chair", "sofa", "bed"],
+        "Sports & Outdoors": ["sport", "outdoor", "equipment", "gear", "athletic", "ball", "cycle", "hiking"],
+        "Books & Media": ["book", "ebook", "media", "entertainment", "novel", "magazine"],
+        "Toys & Games": ["toy", "game", "educational", "board", "puzzle", "lego", "doll"]
+    }
+
     try:
-        items = (
-            db.query(models.Listing)
-            .filter(models.Listing.is_active == True)  # noqa: E712
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-        print(f"--> SUCCESS: Found {len(items)} active listings", flush=True)
+        query = db.query(models.Listing).filter(models.Listing.is_active == True)  # noqa: E712
+        
+        if category:
+            # Smart Filter: Match exact category OR check if title contains related keywords
+            keywords = CATEGORY_KEYWORDS.get(category, [])
+            from sqlalchemy import or_
+            
+            conditions = [models.Listing.category == category]
+            for kw in keywords:
+                # Case-insensitive title search for keywords
+                conditions.append(models.Listing.title.ilike(f"%{kw}%"))
+                conditions.append(models.Listing.description.ilike(f"%{kw}%"))
+            
+            query = query.filter(or_(*conditions))
+        
+        if min_price is not None:
+            query = query.filter(models.Listing.price >= min_price)
+            
+        if max_price is not None:
+            query = query.filter(models.Listing.price <= max_price)
+
+        items = query.offset(skip).limit(limit).all()
+        print(f"--> SUCCESS: Found {len(items)} listings for category '{category}'", flush=True)
         return items
     except Exception as e:
         import traceback
@@ -541,4 +736,4 @@ def get_orders(
 
 if __name__ == "__main__":
     # Use app object directly and disable reload for maximum stability
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="debug")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug")

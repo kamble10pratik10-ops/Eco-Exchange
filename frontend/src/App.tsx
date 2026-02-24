@@ -15,6 +15,8 @@ import {
   WishlistPage,
   MyProfilePage,
   VerifyEmailPage,
+  PublicProfilePage,
+  DashboardPage,
 } from './pages'
 
 function useAuth(): [{ token: string | null }, (token: string | null) => void] {
@@ -118,6 +120,7 @@ function Layout({
                   </button>
                   {profileOpen && (
                     <div className="nav-dropdown" onClick={() => setProfileOpen(false)}>
+                      <NavLink to="/dashboard" className="dropdown-item">Dashboard</NavLink>
                       <NavLink to="/my-profile" className="dropdown-item">My Profile</NavLink>
                       <NavLink to="/profile" className="dropdown-item">Settings</NavLink>
                       <button className="dropdown-item logout-item" onClick={onLogout}>Logout</button>
@@ -205,6 +208,16 @@ function App() {
         <Route path="/wishlist" element={
           <ProtectedRoute token={auth.token}>
             <WishlistPage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/dashboard" element={
+          <ProtectedRoute token={auth.token}>
+            <DashboardPage token={auth.token} />
+          </ProtectedRoute>
+        } />
+        <Route path="/users/:id" element={
+          <ProtectedRoute token={auth.token}>
+            <PublicProfilePage token={auth.token} />
           </ProtectedRoute>
         } />
       </Routes>

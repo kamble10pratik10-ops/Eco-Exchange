@@ -4,6 +4,14 @@ from sqlalchemy.orm import relationship
 from .database import Base
 
 
+class Follow(Base):
+    __tablename__ = "follows"
+
+    follower_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    followed_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    created_at = Column(Integer, nullable=False) # Unix timestamp
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -12,11 +20,21 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     name = Column(String, nullable=False)
     phone = Column(String, nullable=True)
+    profile_image_url = Column(String, nullable=True)
     is_verified = Column(Boolean, default=False)
 
     listings = relationship("Listing", back_populates="owner")
     wishlist_items = relationship("WishlistItem", back_populates="user", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="user", cascade="all, delete-orphan")
+
+    # Many-to-many self-referential relationship for following
+    following = relationship(
+        "User",
+        secondary="follows",
+        primaryjoin="User.id == Follow.follower_id",
+        secondaryjoin="User.id == Follow.followed_id",
+        backref="followers"
+    )
 
 
 class OTP(Base):

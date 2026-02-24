@@ -6,6 +6,7 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str
     phone: Optional[str] = None
+    profile_image_url: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -17,14 +18,28 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     password: Optional[str] = None
+    profile_image_url: Optional[str] = None
+
+
+class UserPublic(UserBase):
+    id: int
+
+    class Config:
+        from_attributes = True
 
 
 class User(UserBase):
     id: int
     is_verified: bool
+    followers_count: int = 0
+    following_count: int = 0
 
     class Config:
         from_attributes = True
+
+
+class FollowStatus(BaseModel):
+    is_following: bool
 
 
 class OTPRequest(BaseModel):
@@ -127,3 +142,13 @@ class Order(BaseModel):
 
     class Config:
         from_attributes = True
+
+class DashboardStats(BaseModel):
+    active_listings_count: int
+    sold_listings_count: int
+    total_followers: int
+    total_following: int
+    wishlist_count: int
+    unread_messages_count: int
+    total_listings_value: float
+    recent_activity: List[dict] = []

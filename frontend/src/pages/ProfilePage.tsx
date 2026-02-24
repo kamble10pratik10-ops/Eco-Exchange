@@ -8,8 +8,12 @@ export default function ProfilePage({ token }: { token: string | null }) {
     const [email, setEmail] = useState('')
     const [phone, setPhone] = useState('')
     const [password, setPassword] = useState('')
+    const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
+    const [followersCount, setFollowersCount] = useState(0)
+    const [followingCount, setFollowingCount] = useState(0)
     const [loading, setLoading] = useState(true)
     const [updating, setUpdating] = useState(false)
+    const [uploadLoading, setUploadLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState<string | null>(null)
     const navigate = useNavigate()
@@ -30,6 +34,9 @@ export default function ProfilePage({ token }: { token: string | null }) {
                 setName(data.name)
                 setEmail(data.email)
                 setPhone(data.phone || '')
+                setProfileImageUrl(data.profile_image_url || null)
+                setFollowersCount(data.followers_count || 0)
+                setFollowingCount(data.following_count || 0)
             } catch (e: any) {
                 setError(e.message)
             } finally {
@@ -39,6 +46,31 @@ export default function ProfilePage({ token }: { token: string | null }) {
         fetchProfile()
     }, [token, navigate])
 
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file || !token) return
+
+        setUploadLoading(true)
+        setError(null)
+        const formData = new FormData()
+        formData.append('file', file)
+
+        try {
+            const res = await fetch(`${API_URL}/chat/upload`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body: formData,
+            })
+            if (!res.ok) throw new Error('Image upload failed')
+            const data = await res.json()
+            setProfileImageUrl(data.url)
+        } catch (err: any) {
+            setError(err.message)
+        } finally {
+            setUploadLoading(false)
+        }
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setUpdating(true)
@@ -46,7 +78,12 @@ export default function ProfilePage({ token }: { token: string | null }) {
         setSuccess(null)
 
         try {
-            const body: any = { name, email, phone }
+            const body: any = {
+                name,
+                email,
+                phone,
+                profile_image_url: profileImageUrl
+            }
             if (password) body.password = password
 
             const res = await fetch(`${API_URL}/auth/profile`, {
@@ -79,7 +116,49 @@ export default function ProfilePage({ token }: { token: string | null }) {
             <h2>Account Settings</h2>
             <p className="form-subtitle">Update your personal information</p>
 
+            <div className="profile-stats-bar">
+                <div className="stat-card">
+                    <span className="stat-value">{followersCount}</span>
+                    <span className="stat-label">Followers</span>
+                </div>
+                <div className="stat-card">
+                    <span className="stat-value">{followingCount}</span>
+                    <span className="stat-label">Following</span>
+                </div>
+            </div>
+
             <form onSubmit={handleSubmit} className="form">
+                <div className="profile-photo-upload">
+                    <div className="profile-photo-preview">
+                        {profileImageUrl ? (
+                            <img src={profileImageUrl} alt="Profile" />
+                        ) : (
+                            <div className="avatar-placeholder">{name?.[0]?.toUpperCase() || 'U'}</div>
+                        )}
+                        {uploadLoading && <div className="upload-overlay">...</div>}
+                    </div>
+                    <div className="photo-upload-controls">
+                        <label className="file-input-label">
+                            {profileImageUrl ? 'Change Photo' : 'Upload Photo'}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleImageUpload}
+                                hidden
+                            />
+                        </label>
+                        {profileImageUrl && (
+                            <button
+                                type="button"
+                                className="remove-photo-btn"
+                                onClick={() => setProfileImageUrl(null)}
+                            >
+                                Remove
+                            </button>
+                        )}
+                    </div>
+                </div>
+
                 <label>
                     Full Name
                     <input

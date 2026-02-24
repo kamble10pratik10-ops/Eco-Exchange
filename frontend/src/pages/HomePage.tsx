@@ -27,14 +27,36 @@ export default function HomePage({ token }: { token: string | null }) {
   const [wishlistIds, setWishlistIds] = useState<Set<number>>(new Set())
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [activeMenu, setActiveMenu] = useState<number | null>(null)
+
+  // Filters state
+  const [category, setCategory] = useState<string>('')
+  const [minPrice, setMinPrice] = useState<string>('')
+  const [maxPrice, setMaxPrice] = useState<string>('')
+
   const navigate = useNavigate()
   const menuRef = useRef<HTMLDivElement | null>(null)
 
+  const CATEGORIES = [
+    "Electronics & Technology",
+    "Fashion & Apparel",
+    "Health, Personal Care",
+    "Home, Kitchen & Furniture",
+    "Sports & Outdoors",
+    "Books & Media",
+    "Toys & Games"
+  ]
+
   useEffect(() => {
     const load = async () => {
+      setLoading(true)
       try {
+        const params = new URLSearchParams()
+        if (category) params.append('category', category)
+        if (minPrice) params.append('min_price', minPrice)
+        if (maxPrice) params.append('max_price', maxPrice)
+
         const [listingsRes, wishlistRes] = await Promise.all([
-          fetch(`${API_URL}/listings`, {
+          fetch(`${API_URL}/listings?${params.toString()}`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           }),
           token ? fetch(`${API_URL}/wishlist`, {
@@ -57,7 +79,7 @@ export default function HomePage({ token }: { token: string | null }) {
       }
     }
     load()
-  }, [token])
+  }, [token, category, minPrice, maxPrice])
 
   useEffect(() => {
     if (token) {
@@ -142,6 +164,56 @@ export default function HomePage({ token }: { token: string | null }) {
     <>
       <section className="hero">
         <h2>Latest Products Available...</h2>
+
+        <div className="filter-bar">
+          <div className="filter-group">
+            <label>Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="filter-select"
+            >
+              <option value="">All Categories</option>
+              {CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label>Price Range</label>
+            <div className="price-inputs">
+              <input
+                type="number"
+                placeholder="Min"
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                className="filter-input"
+              />
+              <span>to</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                className="filter-input"
+              />
+            </div>
+          </div>
+
+          {(category || minPrice || maxPrice) && (
+            <button
+              className="clear-filters-btn"
+              onClick={() => {
+                setCategory('')
+                setMinPrice('')
+                setMaxPrice('')
+              }}
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
       </section>
 
       {listings.length === 0 ? (
@@ -153,10 +225,7 @@ export default function HomePage({ token }: { token: string | null }) {
         <section className="listings-grid">
           {listings.map((item) => (
             <div key={item.id} className="listing-card-container">
-              <Link
-                to={`/listings/${item.id}`}
-                className="listing-card-link"
-              >
+              <Link to={`/listings/${item.id}`} className="listing-card-link">
                 <article className="listing-card">
                   {item.images && item.images.length > 0 ? (
                     <img
@@ -164,12 +233,17 @@ export default function HomePage({ token }: { token: string | null }) {
                       alt={item.title}
                       className="listing-card-image"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x200?text=No+Image'
+                        (e.target as HTMLImageElement).src =
+                          'https://via.placeholder.com/300x200?text=No+Image'
                       }}
                     />
                   ) : (
                     <div className="listing-card-no-image">
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
                     </div>
                   )}
                   <header>
@@ -178,9 +252,11 @@ export default function HomePage({ token }: { token: string | null }) {
                       <button
                         className={`card-wishlist-btn ${wishlistIds.has(item.id) ? 'active' : ''}`}
                         onClick={(e) => handleWishlistToggle(e, item.id)}
-                        title={wishlistIds.has(item.id) ? "Remove from wishlist" : "Add to wishlist"}
+                        title={wishlistIds.has(item.id) ? 'Remove from wishlist' : 'Add to wishlist'}
                       >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill={wishlistIds.has(item.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill={wishlistIds.has(item.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                        </svg>
                       </button>
                     )}
                   </header>
@@ -188,9 +264,7 @@ export default function HomePage({ token }: { token: string | null }) {
                     {item.category || 'General'} · {item.city || 'Unknown city'}
                   </p>
                   <p className="description">
-                    {item.description.length > 80
-                      ? item.description.slice(0, 80) + '...'
-                      : item.description}
+                    {item.description.length > 80 ? item.description.slice(0, 80) + '...' : item.description}
                   </p>
                   <div className="card-footer">
                     <span className="price">₹{item.price.toLocaleString()}</span>

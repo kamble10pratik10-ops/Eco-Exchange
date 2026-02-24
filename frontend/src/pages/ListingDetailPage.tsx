@@ -29,6 +29,9 @@ export default function ListingDetailPage({ token }: { token?: string | null }) 
     const [chatLoading, setChatLoading] = useState(false)
     const [currentUserId, setCurrentUserId] = useState<number | null>(null)
     const [mainImage, setMainImage] = useState<string | null>(null)
+    const [sellerProfile, setSellerProfile] = useState<any>(null)
+    const [isFollowing, setIsFollowing] = useState(false)
+    const [followLoading, setFollowLoading] = useState(false)
 
     useEffect(() => {
         const load = async () => {
@@ -42,8 +45,25 @@ export default function ListingDetailPage({ token }: { token?: string | null }) 
                 }
                 const data = (await res.json()) as Listing
                 setListing(data)
-                if (data.images && data.images.length > 0) {
-                    setMainImage(data.images[0].url)
+                setMainImage(data.images?.[0]?.url || null)
+
+                // Fetch seller profile
+                const sRes = await fetch(`${API_URL}/users/${data.owner_id}/profile`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                })
+                if (sRes.ok) {
+                    setSellerProfile(await sRes.json())
+                }
+
+                // Fetch following status
+                if (token) {
+                    const fRes = await fetch(`${API_URL}/users/${data.owner_id}/follow-status`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    })
+                    if (fRes.ok) {
+                        const fData = await fRes.json()
+                        setIsFollowing(fData.is_following)
+                    }
                 }
             } catch (e: any) {
                 setError(e.message ?? 'Error loading listing')
@@ -53,6 +73,32 @@ export default function ListingDetailPage({ token }: { token?: string | null }) 
         }
         load()
     }, [id, token])
+
+    const handleFollowToggle = async () => {
+        if (!token || !listing) return
+        setFollowLoading(true)
+        try {
+            const endpoint = isFollowing ? 'unfollow' : 'follow'
+            const res = await fetch(`${API_URL}/users/${listing.owner_id}/${endpoint}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+                setIsFollowing(!isFollowing)
+                // Refresh seller profile for new counts
+                const sRes = await fetch(`${API_URL}/users/${listing.owner_id}/profile`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+                if (sRes.ok) {
+                    setSellerProfile(await sRes.json())
+                }
+            }
+        } catch (err) {
+            console.error('Follow error:', err)
+        } finally {
+            setFollowLoading(false)
+        }
+    }
 
     // Get current user
     useEffect(() => {
@@ -195,9 +241,38 @@ export default function ListingDetailPage({ token }: { token?: string | null }) 
                     <p>{listing.description}</p>
                 </div>
 
-                <div className="detail-section">
-                    <h3>Seller info</h3>
-                    <p className="meta">Seller ID: #{listing.owner_id}</p>
+                <div className="detail-section seller-info-detail">
+                    <div className="seller-header">
+                        <h3>Seller Information</h3>
+                        {token && !isOwner && (
+                            <button
+                                className={`follow-btn ${isFollowing ? 'following' : ''}`}
+                                onClick={handleFollowToggle}
+                                disabled={followLoading}
+                            >
+                                {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+                            </button>
+                        )}
+                    </div>
+                    <div className="seller-meta">
+                        <Link to={`/users/${listing.owner_id}`} className="seller-link">
+                            <div className="seller-avatar-small">
+                                {sellerProfile?.profile_image_url ? (
+                                    <img src={sellerProfile.profile_image_url} alt={sellerProfile.name} />
+                                ) : (
+                                    sellerProfile?.name?.[0].toUpperCase() || 'S'
+                                )}
+                            </div>
+                        </Link>
+                        <div className="seller-details">
+                            <Link to={`/users/${listing.owner_id}`} className="seller-link">
+                                <span className="seller-name">{sellerProfile?.name || `Seller #${listing.owner_id}`}</span>
+                            </Link>
+                            <span className="seller-stats">
+                                {sellerProfile?.followers_count || 0} Followers • {sellerProfile?.following_count || 0} Following
+                            </span>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Actions section */}
