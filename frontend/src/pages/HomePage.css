@@ -1,0 +1,208 @@
+.home-hero {
+    margin-bottom: 60px;
+}
+
+.home-hero h1 {
+    font-size: 3.5rem;
+    line-height: 1.1;
+    margin-bottom: 24px;
+}
+
+.filter-bar-premium {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 24px;
+    background: var(--surface-glass);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-lg);
+    margin-top: 40px;
+}
+
+.premium-select,
+.premium-input {
+    background: var(--surface-glass-bright);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    padding: 12px 20px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.premium-select:focus,
+.premium-input:focus {
+    outline: none;
+    border-color: var(--accent-emerald);
+}
+
+.listing-grid-elite {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 32px;
+}
+
+.elite-card-wrap {
+    position: relative;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.elite-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-glass);
+    border: 1px solid var(--border-glass);
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.elite-card-wrap:hover {
+    transform: translateY(-8px);
+}
+
+.elite-card-wrap:hover .elite-card {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: var(--surface-glass-bright);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+}
+
+.card-image-wrap {
+    position: relative;
+    aspect-ratio: 4/5;
+    overflow: hidden;
+}
+
+.elite-card-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.elite-card-wrap:hover .elite-card-image {
+    transform: scale(1.05);
+}
+
+.card-overlay {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+}
+
+.btn-wishlist-elite {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(8, 10, 9, 0.6);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border-glass);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-wishlist-elite:hover {
+    background: #fff;
+    color: #000;
+    transform: scale(1.1);
+}
+
+.btn-wishlist-elite.active {
+    background: var(--accent-emerald);
+    border-color: var(--accent-emerald);
+}
+
+.card-content-elite {
+    padding: 24px;
+}
+
+.card-meta-elite {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent-emerald);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+}
+
+.card-title-elite {
+    font-size: 1.4rem;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+}
+
+.card-desc-elite {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    display: -webkit-box;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    display: -webkit-box;
+    overflow: hidden;
+}
+
+.card-footer-elite {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+}
+
+.price-elite {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent-gold);
+}
+
+.btn-view-elite {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent-emerald);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: rgba(16, 185, 129, 0.1);
+    border-radius: 20px;
+    transition: all 0.3s ease;
+}
+
+.elite-card-wrap:hover .btn-view-elite {
+    background: var(--accent-emerald);
+    color: #000;
+}
+
+.btn-clear-elite {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-clear-elite:hover {
+    background: #ef4444;
+    color: #fff;
+}

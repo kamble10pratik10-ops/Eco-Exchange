@@ -1,271 +1,282 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+    Camera,
+    X,
+    ArrowRight,
+    Check,
+    ArrowLeft
+} from 'lucide-react'
+import './NewListingPage.css'
 
 const API_URL = 'http://127.0.0.1:8000'
 
-export default function EditListingPage({
-    token,
-}: {
-    token: string | null
-}) {
-    const { id } = useParams<{ id: string }>()
-    const [title, setTitle] = useState('')
-    const [description, setDescription] = useState('')
-    const [price, setPrice] = useState('')
-    const [category, setCategory] = useState('')
-    const [city, setCity] = useState('')
-    const [existingUrls, setExistingUrls] = useState<string[]>([])
+export default function EditListingPage({ token }: { token: string | null }) {
+    const { id } = useParams()
+    const [step, setStep] = useState(1)
+    const [formData, setFormData] = useState({
+        title: '',
+        description: '',
+        price: '',
+        category: '',
+        city: '',
+    })
+    const [existingImages, setExistingImages] = useState<{ id: number, url: string }[]>([])
     const [newImages, setNewImages] = useState<File[]>([])
     const [newPreviews, setNewPreviews] = useState<string[]>([])
-    const [uploading, setUploading] = useState(false)
-    const [loading, setLoading] = useState(false)
-    const [initialLoading, setInitialLoading] = useState(true)
+    const [loading, setLoading] = useState(true)
+    const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [success, setSuccess] = useState<string | null>(null)
+
     const navigate = useNavigate()
+
+    const CATEGORIES = [
+        "Electronics & Technology",
+        "Fashion & Apparel",
+        "Health, Personal Care",
+        "Home, Kitchen & Furniture",
+        "Sports & Outdoors",
+        "Books & Media",
+        "Toys & Games"
+    ]
 
     useEffect(() => {
         const fetchListing = async () => {
             try {
-                const res = await fetch(`${API_URL}/listings/${id}`, {
-                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                const r = await fetch(`${API_URL}/listings/${id}`)
+                if (!r.ok) throw new Error('Listing not found')
+                const data = await r.json()
+                setFormData({
+                    title: data.title,
+                    description: data.description,
+                    price: data.price.toString(),
+                    category: data.category || '',
+                    city: data.city || '',
                 })
-                if (!res.ok) throw new Error('Failed to load listing')
-                const data = await res.json()
-                setTitle(data.title)
-                setDescription(data.description)
-                setPrice(data.price.toString())
-                setCategory(data.category || '')
-                setCity(data.city || '')
-
-                if (data.images) {
-                    setExistingUrls(data.images.map((img: any) => img.url))
-                }
-            } catch (e: any) {
-                setError(e.message)
-            } finally {
-                setInitialLoading(false)
+                setExistingImages(data.images || [])
+                setLoading(false)
+            } catch (err: any) {
+                setError(err.message)
+                setLoading(false)
             }
         }
         fetchListing()
-    }, [id, token])
+    }, [id])
 
-    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files
-        if (files) {
-            const newFiles = Array.from(files)
-            setNewImages(prev => [...prev, ...newFiles])
-
-            newFiles.forEach(file => {
-                const reader = new FileReader()
-                reader.onloadend = () => {
-                    setNewPreviews(prev => [...prev, reader.result as string])
-                }
-                reader.readAsDataURL(file)
-            })
+    const handleNewImages = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            const files = Array.from(e.target.files)
+            setNewImages([...newImages, ...files])
+            const previews = files.map(f => URL.createObjectURL(f))
+            setNewPreviews([...newPreviews, ...previews])
         }
     }
 
-    const removeExistingImage = (index: number) => {
-        setExistingUrls(prev => prev.filter((_, i) => i !== index))
+    const removeExisting = (index: number) => {
+        const updated = [...existingImages]
+        updated.splice(index, 1)
+        setExistingImages(updated)
     }
 
-    const removeNewImage = (index: number) => {
-        setNewImages(prev => prev.filter((_, i) => i !== index))
-        setNewPreviews(prev => prev.filter((_, i) => i !== index))
+    const removeNew = (index: number) => {
+        const updatedFiles = [...newImages]
+        updatedFiles.splice(index, 1)
+        setNewImages(updatedFiles)
+
+        const updatedPreviews = [...newPreviews]
+        updatedPreviews.splice(index, 1)
+        setNewPreviews(updatedPreviews)
     }
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        if (!token) {
-            setError('You must be logged in to edit an ad.')
-            return
-        }
-        setLoading(true)
+    const handleSubmit = async () => {
+        if (!token) return
+        setSaving(true)
         setError(null)
-        setSuccess(null)
-
-        const finalUrls = [...existingUrls]
 
         try {
-            // 1. Upload new images in parallel
+            let finalImageUrls = existingImages.map(img => img.url)
+
+            // 1. Upload new images if any
             if (newImages.length > 0) {
-                setUploading(true)
+                const bulkData = new FormData()
+                newImages.forEach(file => bulkData.append('files', file))
 
-                // Fetch signature from backend
-                const sigRes = await fetch(`${API_URL}/chat/cloudinary-signature`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                })
-                if (!sigRes.ok) throw new Error('Could not get upload signature')
-                const sigData = await sigRes.json()
-
-                const uploadPromises = newImages.map(async (file) => {
-                    const formData = new FormData()
-                    formData.append('file', file)
-                    formData.append('api_key', sigData.api_key)
-                    formData.append('timestamp', sigData.timestamp)
-                    formData.append('signature', sigData.signature)
-                    formData.append('folder', sigData.folder)
-
-                    const res = await fetch(`https://api.cloudinary.com/v1_1/${sigData.cloud_name}/image/upload`, {
-                        method: 'POST',
-                        body: formData
-                    })
-
-                    if (!res.ok) {
-                        const err = await res.json()
-                        throw new Error(err.error?.message || 'Direct upload failed')
-                    }
-                    const data = await res.json()
-                    return data.secure_url as string
+                const uploadRes = await fetch(`${API_URL}/images/bulk`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: bulkData,
                 })
 
-                const resUrls = await Promise.all(uploadPromises)
-                finalUrls.push(...resUrls)
-
-                setUploading(false)
+                if (!uploadRes.ok) throw new Error('Failed to synchronize new visual assets')
+                const uploadedUrls = await uploadRes.json()
+                finalImageUrls = [...finalImageUrls, ...uploadedUrls]
             }
 
             // 2. Update listing
+            const payload = {
+                ...formData,
+                price: parseFloat(formData.price),
+                image_urls: finalImageUrls
+            }
+
             const res = await fetch(`${API_URL}/listings/${id}`, {
                 method: 'PUT',
                 headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json"
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify({
-                    title,
-                    description,
-                    price: Number(price),
-                    category: category || null,
-                    city: city || null,
-                    image_urls: finalUrls,
-                }),
+                body: JSON.stringify(payload),
             })
-            if (!res.ok) {
-                const data = await res.json().catch(() => null)
-                throw new Error(data?.detail ?? 'Failed to update listing')
-            }
-            setSuccess('Listing updated!')
-            setTimeout(() => navigate(`/listings/${id}`), 1000)
+
+            if (!res.ok) throw new Error('Failed to update asset signature')
+            navigate(`/listings/${id}`)
         } catch (e: any) {
-            setError(e.message ?? 'Failed to update listing')
-            setUploading(false)
+            setError(e.message)
         } finally {
-            setLoading(false)
+            setSaving(false)
         }
     }
 
-    if (initialLoading) return <p className="loading-text">Loading...</p>
+    if (loading) return <div className="loading-container-elite"><span>Re-calibrating asset data...</span></div>
 
     return (
-        <section className="form-card">
-            <h2>Edit your ad</h2>
-            <p className="form-subtitle">Update the details of your item</p>
-            <form onSubmit={handleSubmit} className="form">
-                <label>
-                    Title
-                    <input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="e.g. iPhone 13 Pro Max"
-                        required
-                    />
-                </label>
-                <label>
-                    Description
-                    <textarea
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        rows={4}
-                        placeholder="Describe condition, features, reason for selling…"
-                        required
-                    />
-                </label>
-                <div className="form-row">
-                    <label>
-                        Price (₹)
-                        <input
-                            type="number"
-                            min={0}
-                            value={price}
-                            onChange={(e) => setPrice(e.target.value)}
-                            placeholder="0"
-                            required
-                        />
-                    </label>
-                    <label>
-                        Category
-                        <input
-                            value={category}
-                            onChange={(e) => setCategory(e.target.value)}
-                            placeholder="Mobiles, Electronics…"
-                        />
-                    </label>
-                </div>
-                <label>
-                    City
-                    <input
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        placeholder="Mumbai, Pune…"
-                    />
-                </label>
-
-                <div className="image-upload-section">
-                    <label className="image-upload-label">
-                        Product Photos
-                        <div className="image-dropzone">
-                            <div className="dropzone-content">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
-                                <span>Add more images</span>
-                            </div>
-                            <input
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                onChange={handleImageChange}
-                                className="file-input"
-                            />
-                        </div>
-                    </label>
-
-                    {(existingUrls.length > 0 || newPreviews.length > 0) && (
-                        <div className="previews-grid">
-                            {existingUrls.map((url, idx) => (
-                                <div key={`existing-${idx}`} className="preview-item">
-                                    <img src={url} alt={`Existing ${idx}`} />
-                                    <button
-                                        type="button"
-                                        className="remove-preview-btn"
-                                        onClick={() => removeExistingImage(idx)}
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            ))}
-                            {newPreviews.map((preview, idx) => (
-                                <div key={`new-${idx}`} className="preview-item">
-                                    <img src={preview} alt={`New ${idx}`} />
-                                    <button
-                                        type="button"
-                                        className="remove-preview-btn"
-                                        onClick={() => removeNewImage(idx)}
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {error && <p className="error">{error}</p>}
-                {success && <p className="success">{success}</p>}
-                <button type="submit" disabled={loading || uploading}>
-                    {loading ? (uploading ? 'Uploading…' : 'Updating…') : 'Update ad'}
+        <div className="listing-studio">
+            <header className="studio-header">
+                <button className="btn-back-elite" onClick={() => navigate(-1)} style={{ margin: '0 auto 24px', background: 'transparent', border: 'none', color: 'var(--accent-emerald)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ArrowLeft size={18} />
+                    <span>Back to Gallery</span>
                 </button>
-            </form>
-        </section>
+                <h1 className="text-gradient">Asset Re-calibration</h1>
+                <p style={{ color: 'var(--text-secondary)' }}>Refine the parameters of your deployed item.</p>
+            </header>
+
+            <div className="listing-steps-container">
+                <AnimatePresence mode="wait">
+                    {step === 1 && (
+                        <motion.div
+                            key="visuals"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            className="studio-step-card"
+                        >
+                            <span className="step-indicator-lite">Step 01 — Visual Integrity</span>
+                            <h3>Current & New Imagery</h3>
+
+                            <div className="canvas-preview-grid" style={{ marginBottom: '32px' }}>
+                                {existingImages.map((img, i) => (
+                                    <div key={`existing-${i}`} className="preview-thumbnail">
+                                        <img src={img.url} alt="" />
+                                        <button className="btn-remove-photo" onClick={() => removeExisting(i)}><X size={14} /></button>
+                                        <span className="indicator-badge" style={{ position: 'absolute', bottom: '4px', left: '4px', fontSize: '10px', background: 'rgba(0,0,0,0.5)', padding: '2px 4px', borderRadius: '4px' }}>Existing</span>
+                                    </div>
+                                ))}
+                                {newPreviews.map((url, i) => (
+                                    <div key={`new-${i}`} className="preview-thumbnail" style={{ border: '1px solid var(--accent-emerald)' }}>
+                                        <img src={url} alt="" />
+                                        <button className="btn-remove-photo" onClick={() => removeNew(i)}><X size={14} /></button>
+                                        <span className="indicator-badge" style={{ position: 'absolute', bottom: '4px', left: '4px', fontSize: '10px', background: 'var(--accent-emerald)', color: 'black', padding: '2px 4px', borderRadius: '4px' }}>New</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <label className="canvas-dropzone">
+                                <input type="file" multiple accept="image/*" onChange={handleNewImages} hidden />
+                                <div className="dropzone-inner">
+                                    <Camera size={48} color="var(--text-secondary)" />
+                                    <p>Add more photos to the ecosystem</p>
+                                </div>
+                            </label>
+
+                            <div className="studio-footer" style={{ marginTop: '40px' }}>
+                                <button className="btn-studio-primary" onClick={() => setStep(2)}>
+                                    <span>Define Narrative</span>
+                                    <ArrowRight size={18} />
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {step === 2 && (
+                        <motion.div
+                            key="details"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            className="studio-step-card"
+                        >
+                            <span className="step-indicator-lite">Step 02 — Calibration</span>
+                            <h3>Refine Parameters</h3>
+                            <div className="elite-form" style={{ marginTop: '32px' }}>
+                                <div className="input-group-elite">
+                                    <label>Asset Title</label>
+                                    <input
+                                        className="input-premium"
+                                        value={formData.title}
+                                        onChange={e => setFormData({ ...formData, title: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="input-group-elite">
+                                    <label>Description Archive</label>
+                                    <textarea
+                                        className="input-premium"
+                                        rows={6}
+                                        value={formData.description}
+                                        onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="input-row-elite" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                                    <div className="input-group-elite">
+                                        <label>Collection</label>
+                                        <select
+                                            className="premium-select"
+                                            value={formData.category}
+                                            onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                        >
+                                            <option value="">Select Category</option>
+                                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="input-group-elite">
+                                        <label>Geo-location</label>
+                                        <input
+                                            className="input-premium"
+                                            value={formData.city}
+                                            onChange={e => setFormData({ ...formData, city: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="input-group-elite" style={{ marginBottom: 0 }}>
+                                    <label>Valuation Matrix (₹)</label>
+                                    <input
+                                        type="number"
+                                        className="input-premium"
+                                        value={formData.price}
+                                        onChange={e => setFormData({ ...formData, price: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="studio-footer" style={{ marginTop: '60px' }}>
+                                <button className="btn-studio-secondary" onClick={() => setStep(1)}>Back</button>
+                                <button
+                                    className="btn-studio-primary"
+                                    onClick={handleSubmit}
+                                    disabled={saving}
+                                >
+                                    <Check size={18} />
+                                    <span>{saving ? 'Syncing...' : 'Update Deployment'}</span>
+                                </button>
+                            </div>
+                            {error && <p style={{ color: '#ef4444', marginTop: '16px', textAlign: 'center' }}>{error}</p>}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </div>
     )
 }

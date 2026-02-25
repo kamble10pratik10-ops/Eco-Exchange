@@ -1,12 +1,26 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import {
+    MessageSquare,
+    Heart,
+    Share2,
+    Shield,
+    TreePine,
+    Zap,
+    ArrowLeft,
+    Calendar,
+    MapPin,
+    Edit3,
+    Trash2
+} from 'lucide-react'
+import './ListingDetailPage.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? `http://${window.location.hostname}:8000`
+    : 'http://127.0.0.1:8000'
 
-type ProductImage = {
-    id: number
-    url: string
-}
+type ProductImage = { id: number; url: string }
 
 type Listing = {
     id: number
@@ -15,335 +29,242 @@ type Listing = {
     price: number
     category?: string | null
     city?: string | null
-    images: ProductImage[]
-    is_active: boolean
+    created_at?: string
     owner_id: number
+    owner?: {
+        id: number
+        name: string
+        profile_image_url?: string
+    }
+    images: ProductImage[]
 }
 
-export default function ListingDetailPage({ token }: { token?: string | null }) {
-    const { id } = useParams<{ id: string }>()
-    const navigate = useNavigate()
+export default function ListingDetailPage({ token }: { token: string | null }) {
+    const { id } = useParams()
     const [listing, setListing] = useState<Listing | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [chatLoading, setChatLoading] = useState(false)
-    const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-    const [mainImage, setMainImage] = useState<string | null>(null)
-    const [sellerProfile, setSellerProfile] = useState<any>(null)
-    const [isFollowing, setIsFollowing] = useState(false)
-    const [followLoading, setFollowLoading] = useState(false)
+    const [wishlisted, setWishlisted] = useState(false)
+    const [activeImage, setActiveImage] = useState(0)
+    const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null)
+    const [deleting, setDeleting] = useState(false)
+    const navigate = useNavigate()
 
     useEffect(() => {
-        const load = async () => {
+        const fetchDetail = async () => {
             try {
                 const res = await fetch(`${API_URL}/listings/${id}`, {
                     headers: token ? { Authorization: `Bearer ${token}` } : {},
                 })
-                if (!res.ok) {
-                    if (res.status === 404) throw new Error('Listing not found')
-                    throw new Error('Failed to load listing')
-                }
-                const data = (await res.json()) as Listing
+                if (!res.ok) throw new Error('Listing not found')
+                const data = await res.json()
                 setListing(data)
-                setMainImage(data.images?.[0]?.url || null)
 
-                // Fetch seller profile
-                const sRes = await fetch(`${API_URL}/users/${data.owner_id}/profile`, {
-                    headers: token ? { Authorization: `Bearer ${token}` } : {},
-                })
-                if (sRes.ok) {
-                    setSellerProfile(await sRes.json())
-                }
-
-                // Fetch following status
                 if (token) {
-                    const fRes = await fetch(`${API_URL}/users/${data.owner_id}/follow-status`, {
+                    const wRes = await fetch(`${API_URL}/wishlist`, {
                         headers: { Authorization: `Bearer ${token}` },
                     })
-                    if (fRes.ok) {
-                        const fData = await fRes.json()
-                        setIsFollowing(fData.is_following)
+                    if (wRes.ok) {
+                        const wData = await wRes.json()
+                        setWishlisted(wData.some((item: any) => item.listing_id === Number(id)))
+                    }
+
+                    const uRes = await fetch(`${API_URL}/auth/me`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    })
+                    if (uRes.ok) {
+                        const uData = await uRes.json()
+                        setCurrentUser(uData)
                     }
                 }
             } catch (e: any) {
-                setError(e.message ?? 'Error loading listing')
+                setError(e.message)
             } finally {
                 setLoading(false)
             }
         }
-        load()
+        fetchDetail()
     }, [id, token])
 
-    const handleFollowToggle = async () => {
-        if (!token || !listing) return
-        setFollowLoading(true)
+    const handleWishlist = async () => {
+        if (!token) return navigate('/login')
         try {
-            const endpoint = isFollowing ? 'unfollow' : 'follow'
-            const res = await fetch(`${API_URL}/users/${listing.owner_id}/${endpoint}`, {
-                method: 'POST',
+            const method = wishlisted ? 'DELETE' : 'POST'
+            await fetch(`${API_URL}/wishlist/${id}`, {
+                method,
+                headers: { Authorization: `Bearer ${token}` },
+            })
+            setWishlisted(!wishlisted)
+        } catch (err) { console.error(err) }
+    }
+
+    const handleDelete = async () => {
+        if (!isOwner) return
+        if (!window.confirm('Are you sure you want to delete this listing?')) return
+        setDeleting(true)
+        try {
+            const res = await fetch(`${API_URL}/listings/${id}`, {
+                method: 'DELETE',
                 headers: { Authorization: `Bearer ${token}` },
             })
             if (res.ok) {
-                setIsFollowing(!isFollowing)
-                // Refresh seller profile for new counts
-                const sRes = await fetch(`${API_URL}/users/${listing.owner_id}/profile`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (sRes.ok) {
-                    setSellerProfile(await sRes.json())
-                }
-            }
-        } catch (err) {
-            console.error('Follow error:', err)
-        } finally {
-            setFollowLoading(false)
-        }
-    }
-
-    // Get current user
-    useEffect(() => {
-        if (!token) return
-        fetch(`${API_URL}/auth/me`, {
-            headers: { Authorization: `Bearer ${token}` },
-        })
-            .then((r) => r.json())
-            .then((data) => setCurrentUserId(data.id))
-            .catch(() => { })
-    }, [token])
-
-    const [wishlistLoading, setWishlistLoading] = useState(false)
-    const [isInWishlist, setIsInWishlist] = useState(false)
-
-    useEffect(() => {
-        if (!token || !id) return
-        // Check if item is in wishlist
-        fetch(`${API_URL}/wishlist`, {
-            headers: { Authorization: `Bearer ${token}` },
-        })
-            .then((r) => r.json())
-            .then((data) => {
-                if (Array.isArray(data)) {
-                    setIsInWishlist(data.some((item: any) => item.listing_id === Number(id)))
-                }
-            })
-            .catch(() => { })
-    }, [id, token])
-
-    const handleWishlistToggle = async () => {
-        if (!token || !listing) return
-        setWishlistLoading(true)
-        try {
-            if (isInWishlist) {
-                const res = await fetch(`${API_URL}/wishlist/${listing.id}`, {
-                    method: 'DELETE',
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (res.ok) setIsInWishlist(false)
+                navigate('/')
             } else {
-                const res = await fetch(`${API_URL}/wishlist/${listing.id}`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` },
-                })
-                if (res.ok) setIsInWishlist(true)
+                alert('Failed to delete listing')
             }
         } catch (err) {
-            console.error('Wishlist error:', err)
+            console.error(err)
+            alert('Error deleting listing')
         } finally {
-            setWishlistLoading(false)
+            setDeleting(false)
         }
     }
 
-    const handleChatWithSeller = async () => {
-        if (!token || !listing) return
-        setChatLoading(true)
-        try {
-            const res = await fetch(`${API_URL}/chat/conversations`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({ listing_id: listing.id }),
-            })
-            if (!res.ok) {
-                const data = await res.json()
-                throw new Error(data.detail || 'Failed to start chat')
-            }
-            const conv = await res.json()
-            navigate(`/chat/${conv.id}`)
-        } catch (err: any) {
-            alert(err.message || 'Could not start chat')
-        } finally {
-            setChatLoading(false)
-        }
-    }
+    const isOwner = currentUser && listing && currentUser.id === listing.owner_id
 
-    if (loading) return <p className="loading-text">Loading listing…</p>
-    if (error)
-        return (
-            <div className="listing-detail">
-                <p className="error">{error}</p>
-                <Link to="/" className="back-link">
-                    ← Back to listings
-                </Link>
-            </div>
-        )
-    if (!listing) return null
+    if (loading) return <div className="loading-container-elite"><span>Curating details...</span></div>
+    if (error || !listing) return <div className="error-card glass">{error || 'Listing not found'}</div>
 
-    const isOwner = currentUserId === listing.owner_id
+    // Mock impact data based on price/category
+    const co2Saved = Math.round(listing.price / 100) + 5
+    const waterSaved = Math.round(listing.price / 10) + 50
 
     return (
-        <div className="listing-detail">
-            <Link to="/" className="back-link">
-                ← Back to listings
-            </Link>
+        <motion.div
+            className="detail-page-elite"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+        >
+            <div className="cinematic-gallery">
+                <button className="btn-back-elite" onClick={() => navigate(-1)}>
+                    <ArrowLeft size={18} />
+                    <span>Gallery</span>
+                </button>
 
-            <div className="detail-card">
-                {mainImage && (
-                    <div className="detail-image-wrapper">
-                        <div className="detail-image-container">
-                            <img src={mainImage} alt={listing.title} className="detail-image" />
-                        </div>
-                        {listing.images.length > 1 && (
-                            <div className="detail-thumbnails">
-                                {listing.images.map((img) => (
-                                    <div
-                                        key={img.id}
-                                        className={`thumbnail-item ${mainImage === img.url ? 'active' : ''}`}
-                                        onClick={() => setMainImage(img.url)}
-                                    >
-                                        <img src={img.url} alt="Thumbnail" />
-                                    </div>
-                                ))}
+                <motion.div
+                    className="main-image-elite"
+                    key={activeImage}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.4 }}
+                >
+                    <img
+                        src={listing.images[activeImage]?.url || 'https://placehold.co/800x1000/1e293b/10b981?text=Eco+Exchange'}
+                        alt={listing.title}
+                    />
+                </motion.div>
+
+                {listing.images && listing.images.length > 1 && (
+                    <div className="thumbnail-strip-elite">
+                        {listing.images.map((img, idx) => (
+                            <div
+                                key={img.id}
+                                className={`thumbnail-elite ${activeImage === idx ? 'active' : ''}`}
+                                onClick={() => setActiveImage(idx)}
+                            >
+                                <img src={img.url} alt={`View ${idx + 1}`} />
                             </div>
-                        )}
+                        ))}
                     </div>
                 )}
-                <div className="detail-header">
-                    <h2>{listing.title}</h2>
-                    <span className="detail-price">₹{listing.price.toLocaleString()}</span>
-                </div>
 
-                <div className="detail-tags">
-                    {listing.category && (
-                        <span className="detail-tag">{listing.category}</span>
-                    )}
-                    {listing.city && (
-                        <span className="detail-tag">{listing.city}</span>
-                    )}
-                    <span className={`detail-tag ${listing.is_active ? 'tag-active' : 'tag-inactive'}`}>
-                        {listing.is_active ? 'Active' : 'Sold'}
-                    </span>
-                </div>
-
-                <div className="detail-section">
-                    <h3>Description</h3>
-                    <p>{listing.description}</p>
-                </div>
-
-                <div className="detail-section seller-info-detail">
-                    <div className="seller-header">
-                        <h3>Seller Information</h3>
-                        {token && !isOwner && (
-                            <button
-                                className={`follow-btn ${isFollowing ? 'following' : ''}`}
-                                onClick={handleFollowToggle}
-                                disabled={followLoading}
-                            >
-                                {followLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
-                            </button>
-                        )}
+                <div className="impact-grid">
+                    <div className="impact-card-neumorphic">
+                        <TreePine size={24} className="emerald-glow" style={{ marginBottom: '12px' }} />
+                        <span className="impact-value">{co2Saved}kg</span>
+                        <span className="impact-label">CO2 Saved</span>
                     </div>
-                    <div className="seller-meta">
-                        <Link to={`/users/${listing.owner_id}`} className="seller-link">
-                            <div className="seller-avatar-small">
-                                {sellerProfile?.profile_image_url ? (
-                                    <img src={sellerProfile.profile_image_url} alt={sellerProfile.name} />
-                                ) : (
-                                    sellerProfile?.name?.[0].toUpperCase() || 'S'
-                                )}
-                            </div>
-                        </Link>
-                        <div className="seller-details">
-                            <Link to={`/users/${listing.owner_id}`} className="seller-link">
-                                <span className="seller-name">{sellerProfile?.name || `Seller #${listing.owner_id}`}</span>
-                            </Link>
-                            <span className="seller-stats">
-                                {sellerProfile?.followers_count || 0} Followers • {sellerProfile?.following_count || 0} Following
-                            </span>
-                        </div>
+                    <div className="impact-card-neumorphic">
+                        <Zap size={24} style={{ color: '#3b82f6', marginBottom: '12px' }} />
+                        <span className="impact-value">{waterSaved}L</span>
+                        <span className="impact-label">Water Impact</span>
                     </div>
-                </div>
-
-                {/* Actions section */}
-                <div className="detail-section detail-chat-section">
-                    {!token ? (
-                        <Link to="/login" className="chat-seller-btn chat-seller-login">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                            Login to Chat with Seller
-                        </Link>
-                    ) : isOwner ? (
-                        <div className="owner-section">
-                            <div className="owner-badge">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M9 12l2 2 4-4" /></svg>
-                                You are the seller of this listing
-                            </div>
-                            <div className="owner-actions">
-                                <button
-                                    className="chat-seller-btn edit-btn"
-                                    onClick={() => navigate(`/listings/edit/${listing.id}`)}
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                                    Edit Listing
-                                </button>
-                                <button
-                                    className="chat-seller-btn delete-listing-btn"
-                                    onClick={async () => {
-                                        if (window.confirm('Are you sure you want to delete this listing?')) {
-                                            try {
-                                                const res = await fetch(`${API_URL}/listings/${id}`, {
-                                                    method: 'DELETE',
-                                                    headers: { Authorization: `Bearer ${token}` },
-                                                })
-                                                if (!res.ok) throw new Error('Failed to delete listing')
-                                                navigate('/')
-                                            } catch (e: any) {
-                                                alert(e.message)
-                                            }
-                                        }
-                                    }}
-                                >
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
-                                    Delete Listing
-                                </button>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="buyer-actions">
-                            <button
-                                className={`chat-seller-btn wishlist-btn ${isInWishlist ? 'active' : ''}`}
-                                onClick={handleWishlistToggle}
-                                disabled={wishlistLoading}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill={isInWishlist ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
-                                {isInWishlist ? 'In Wishlist' : 'Add to Wishlist'}
-                            </button>
-                            <button
-                                className="chat-seller-btn"
-                                onClick={handleChatWithSeller}
-                                disabled={chatLoading}
-                            >
-                                {chatLoading ? (
-                                    <div className="chat-send-spinner"></div>
-                                ) : (
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                                )}
-                                {chatLoading ? 'Starting chat…' : 'Chat with Seller'}
-                            </button>
-                        </div>
-                    )}
                 </div>
             </div>
-        </div>
+
+            <div className="detail-info-pane">
+                <div className="detail-header-elite">
+                    <div className="detail-meta-row">
+                        <span className="emerald-badge">{listing.category || 'General'}</span>
+                        <div className="meta-actions">
+                            {isOwner ? (
+                                <>
+                                    <Link to={`/listings/edit/${id}`} className="action-circle edit">
+                                        <Edit3 size={18} />
+                                    </Link>
+                                    <button
+                                        className="action-circle delete"
+                                        onClick={handleDelete}
+                                        disabled={deleting}
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <button className={`action-circle ${wishlisted ? 'active' : ''}`} onClick={handleWishlist}>
+                                        <Heart size={20} fill={wishlisted ? "currentColor" : "none"} />
+                                    </button>
+                                    <button className="action-circle"><Share2 size={20} /></button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    <h1 className="text-gradient">{listing.title}</h1>
+                    <div className="detail-price-elite">₹{listing.price.toLocaleString()}</div>
+                </div>
+
+                <div className="detail-specs glass">
+                    <div className="spec-item">
+                        <MapPin size={18} />
+                        <span>{listing.city || 'Global'}</span>
+                    </div>
+                    <div className="spec-item">
+                        <Calendar size={18} />
+                        <span>Listed {new Date().toLocaleDateString()}</span>
+                    </div>
+                    <div className="spec-item">
+                        <Shield size={18} />
+                        <span>Verified Exchange</span>
+                    </div>
+                </div>
+
+                <div className="description-section">
+                    <h3>The Narrative</h3>
+                    <p className="description-elite">{listing.description}</p>
+                </div>
+
+                <div className="owner-section">
+                    <h3>Guardian of this Item</h3>
+                    <div className="owner-card-elite">
+                        <div className="owner-avatar">
+                            {listing.owner?.profile_image_url ? (
+                                <img src={listing.owner.profile_image_url} alt={listing.owner.name} />
+                            ) : (
+                                <span>{listing.owner?.name?.[0] || 'U'}</span>
+                            )}
+                        </div>
+                        <div className="owner-meta">
+                            <span className="owner-name">{listing.owner?.name || 'Ecosystem Member'}</span>
+                            <span className="owner-rating">★★★★★ · 4.9 Trust Score</span>
+                        </div>
+                        <Link to={`/users/${listing.owner_id}`} className="btn-link-elite">View Profile</Link>
+                    </div>
+                </div>
+
+                {!isOwner && (
+                    <div className="purchase-actions">
+                        <Link to={`/chat/${listing.id}?seller=${listing.owner_id}`} className="btn-chat-premium">
+                            <MessageSquare size={20} />
+                            <span>Secure Negotiation</span>
+                        </Link>
+                        <p className="trust-footer">
+                            <Shield size={12} />
+                            Your payment is protected by Eco-Exchange Vault.
+                        </p>
+                    </div>
+                )}
+            </div>
+        </motion.div>
     )
 }

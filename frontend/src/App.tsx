@@ -1,6 +1,20 @@
 import { Link, NavLink, Route, Routes, useNavigate, Navigate, useLocation } from 'react-router-dom'
+import './design-system.css'
 import './App.css'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Search,
+  PlusCircle,
+  MessageSquare,
+  Heart,
+  User,
+  LogOut,
+  LayoutDashboard,
+  Settings,
+  ChevronDown,
+  Globe
+} from 'lucide-react'
 import {
   HomePage,
   LoginPage,
@@ -48,19 +62,18 @@ function HeaderSearchBar() {
   return (
     <form className="header-search-form" onSubmit={handleSubmit} role="search">
       <div className="header-search-wrap">
-        <svg className="header-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
+        <Search className="header-search-icon" size={18} />
         <input
           id="header-search-input"
           type="text"
           className="header-search-input"
-          placeholder="Search listings…"
+          placeholder="Explore the ecosystem..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          aria-label="Quick search"
+          aria-label="Search"
           autoComplete="off"
         />
+        <div className="search-shortcut">⌘K</div>
       </div>
     </form>
   )
@@ -78,69 +91,152 @@ function Layout({
   children,
   authed,
   onLogout,
+  token,
 }: {
   children: React.ReactNode
   authed: boolean
   onLogout: () => void
+  token: string | null
 }) {
   const [profileOpen, setProfileOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [userProfile, setUserProfile] = useState<any>(null)
+  const location = useLocation()
+
+  useEffect(() => {
+    const fetchProfile = () => {
+      if (authed && token) {
+        fetch('http://127.0.0.1:8000/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+          .then(r => r.json())
+          .then(data => setUserProfile(data))
+          .catch(err => console.error("Profile sync error", err))
+      }
+    }
+
+    fetchProfile()
+
+    // Listen for profile updates from other components
+    window.addEventListener('profile-updated', fetchProfile)
+    return () => window.removeEventListener('profile-updated', fetchProfile)
+  }, [authed, token])
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20)
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <div className="header-top">
-          <Link to="/" className="logo-text">
-            Exo Exchange
+    <div className="app-container">
+      <header className={`app-header ${scrolled ? 'scrolled' : ''}`}>
+        <div className="header-content">
+          <Link to="/" className="logo-container">
+            <div className="logo-icon">
+              <Globe size={24} className="emerald-glow" />
+            </div>
+            <span className="logo-text">Eco-Exchange</span>
           </Link>
-          {authed && <HeaderSearchBar />}
-          <nav className="nav">
+
+          <HeaderSearchBar />
+
+          <nav className="nav-main">
             {authed && (
               <>
-                <NavLink to="/" end>
-                  Home
+                <NavLink to="/" end className="nav-link">
+                  <span>Home</span>
                 </NavLink>
-                <NavLink to="/search">
-                  🔍 Search
+                <NavLink to="/listings/new" className="nav-link">
+                  <PlusCircle size={18} />
+                  <span>Post</span>
                 </NavLink>
-                <NavLink to="/listings/new">Posts</NavLink>
-                <NavLink to="/messages" className="nav-messages-link">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                  Messages
+                <NavLink to="/messages" className="nav-link">
+                  <MessageSquare size={18} />
+                  <span>Messages</span>
                 </NavLink>
-                <NavLink to="/wishlist">
-                  ❤️ Wishlist
+                <NavLink to="/wishlist" className="nav-link">
+                  <Heart size={18} />
                 </NavLink>
-                <div className="nav-dropdown-wrapper">
+
+                <div className="user-menu-root">
                   <button
-                    className="nav-profile-btn"
+                    className={`user-trigger ${profileOpen ? 'active' : ''}`}
                     onClick={() => setProfileOpen(!profileOpen)}
                   >
-                    👤 Profile
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" transform={profileOpen ? "rotate(180)" : ""}><path d="M6 9l6 6 6-6" /></svg>
-                  </button>
-                  {profileOpen && (
-                    <div className="nav-dropdown" onClick={() => setProfileOpen(false)}>
-                      <NavLink to="/dashboard" className="dropdown-item">Dashboard</NavLink>
-                      <NavLink to="/my-profile" className="dropdown-item">My Profile</NavLink>
-                      <NavLink to="/profile" className="dropdown-item">Settings</NavLink>
-                      <button className="dropdown-item logout-item" onClick={onLogout}>Logout</button>
+                    <div className="avatar-small" style={{ overflow: 'hidden', border: '1px solid var(--border-glass)' }}>
+                      {userProfile?.profile_image_url ? (
+                        <img src={userProfile.profile_image_url} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <User size={16} />
+                      )}
                     </div>
-                  )}
+                    <ChevronDown size={14} className={`chevron ${profileOpen ? 'up' : ''}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {profileOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        className="user-dropdown glass"
+                        onClick={() => setProfileOpen(false)}
+                      >
+                        <div className="dropdown-section">
+                          <NavLink to="/dashboard" className="dropdown-link">
+                            <LayoutDashboard size={16} />
+                            <span>Dashboard</span>
+                          </NavLink>
+                          <NavLink to="/my-profile" className="dropdown-link">
+                            <User size={16} />
+                            <span>My Profile</span>
+                          </NavLink>
+                          <NavLink to="/profile" className="dropdown-link">
+                            <Settings size={16} />
+                            <span>Settings</span>
+                          </NavLink>
+                        </div>
+                        <div className="dropdown-divider" />
+                        <button className="dropdown-link logout" onClick={onLogout}>
+                          <LogOut size={16} />
+                          <span>Logout</span>
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </>
             )}
-            {!authed ? (
-              <>
-                <NavLink to="/login">Login</NavLink>
-                <NavLink to="/register">Register</NavLink>
-              </>
-            ) : (
-              null
+            {!authed && (
+              <div className="auth-nav">
+                <NavLink to="/login" className="nav-link login">Login</NavLink>
+                <Link to="/register" className="btn-premium">Join Now</Link>
+              </div>
             )}
           </nav>
         </div>
       </header>
-      <main className="app-main">{children}</main>
+
+      <main className="main-content">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
+      </main>
+
+      <footer className="app-footer">
+        <div className="footer-content">
+          <p>© 2026 Eco-Exchange. Built for a sustainable future.</p>
+        </div>
+      </footer>
     </div>
   )
 }
@@ -151,17 +247,13 @@ function App() {
   const handleLogout = () => setAuth(null)
 
   return (
-    <Layout authed={!!auth.token} onLogout={handleLogout}>
+    <Layout authed={!!auth.token} onLogout={handleLogout} token={auth.token}>
       <Routes>
         <Route path="/login" element={<LoginPage onLogin={setAuth} />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
 
-        <Route path="/" element={
-          <ProtectedRoute token={auth.token}>
-            <HomePage token={auth.token} />
-          </ProtectedRoute>
-        } />
+        <Route path="/" element={<HomePage token={auth.token} />} />
         <Route
           path="/listings/new"
           element={
@@ -175,11 +267,7 @@ function App() {
             <EditListingPage token={auth.token} />
           </ProtectedRoute>
         } />
-        <Route path="/listings/:id" element={
-          <ProtectedRoute token={auth.token}>
-            <ListingDetailPage token={auth.token} />
-          </ProtectedRoute>
-        } />
+        <Route path="/listings/:id" element={<ListingDetailPage token={auth.token} />} />
         <Route path="/messages" element={
           <ProtectedRoute token={auth.token}>
             <ChatListPage token={auth.token} />
@@ -190,11 +278,7 @@ function App() {
             <ChatPage token={auth.token} />
           </ProtectedRoute>
         } />
-        <Route path="/search" element={
-          <ProtectedRoute token={auth.token}>
-            <SearchPage token={auth.token} />
-          </ProtectedRoute>
-        } />
+        <Route path="/search" element={<SearchPage token={auth.token} />} />
         <Route path="/profile" element={
           <ProtectedRoute token={auth.token}>
             <ProfilePage token={auth.token} />

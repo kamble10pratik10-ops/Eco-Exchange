@@ -1,5 +1,17 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import {
+  Heart,
+  MapPin,
+  ArrowRight,
+  Filter,
+  X,
+  Package,
+  Sparkles,
+  ShoppingBag
+} from 'lucide-react'
+import './HomePage.css'
 
 const API_URL = 'http://127.0.0.1:8000'
 
@@ -26,7 +38,6 @@ export default function HomePage({ token }: { token: string | null }) {
   const [error, setError] = useState<string | null>(null)
   const [wishlistIds, setWishlistIds] = useState<Set<number>>(new Set())
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-  const [activeMenu, setActiveMenu] = useState<number | null>(null)
 
   // Filters state
   const [category, setCategory] = useState<string>('')
@@ -34,7 +45,6 @@ export default function HomePage({ token }: { token: string | null }) {
   const [maxPrice, setMaxPrice] = useState<string>('')
 
   const navigate = useNavigate()
-  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const CATEGORIES = [
     "Electronics & Technology",
@@ -64,7 +74,7 @@ export default function HomePage({ token }: { token: string | null }) {
           }) : Promise.resolve({ ok: true, json: () => Promise.resolve([]) } as any)
         ])
 
-        if (!listingsRes.ok) throw new Error('Failed to load listings')
+        if (!listingsRes.ok) throw new Error('Sign in to see posts')
         const listingsData = (await listingsRes.json()) as Listing[]
         setListings(listingsData)
 
@@ -93,16 +103,6 @@ export default function HomePage({ token }: { token: string | null }) {
       setCurrentUserId(null)
     }
   }, [token])
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setActiveMenu(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
 
   const handleWishlistToggle = async (e: React.MouseEvent, listingId: number) => {
     e.preventDefault()
@@ -140,178 +140,181 @@ export default function HomePage({ token }: { token: string | null }) {
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!token) return
-    if (!window.confirm('Are you sure you want to delete this listing?')) return
-
-    try {
-      const res = await fetch(`${API_URL}/listings/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) throw new Error('Failed to delete listing')
-      setListings((prev) => prev.filter((item) => item.id !== id))
-      setActiveMenu(null)
-    } catch (e: any) {
-      alert(e.message)
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
     }
   }
 
-  if (loading) return <p className="loading-text">Loading listings...</p>
-  if (error) return <p className="error">{error}</p>
+  const itemVariants = {
+    hidden: { opacity: 0, y: 30 },
+    show: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        type: "spring" as const,
+        damping: 20
+      }
+    }
+  }
+
+  if (loading) return (
+    <div className="loading-container-elite">
+      <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
+        <Sparkles size={40} className="emerald-glow" />
+      </motion.div>
+      <p>Consulting the ecosystem...</p>
+    </div>
+  )
 
   return (
-    <>
-      <section className="hero">
-        <h2>Latest Products Available...</h2>
+    <div className="home-page-elite">
+      <motion.section
+        className="home-hero"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="hero-tag">
+          <Sparkles size={14} />
+          <span>The Next Generation Exchange</span>
+        </div>
+        <h1 className="text-gradient">Discover Curated<br />Eco-Elegance</h1>
 
-        <div className="filter-bar">
+        <div className="filter-bar-premium glass">
           <div className="filter-group">
-            <label>Category</label>
+            <Filter size={18} className="filter-icon" />
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="filter-select"
+              className="premium-select"
             >
-              <option value="">All Categories</option>
+              <option value="">All Collections</option>
               {CATEGORIES.map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
           </div>
 
-          <div className="filter-group">
-            <label>Price Range</label>
-            <div className="price-inputs">
-              <input
-                type="number"
-                placeholder="Min"
-                value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value)}
-                className="filter-input"
-              />
-              <span>to</span>
-              <input
-                type="number"
-                placeholder="Max"
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value)}
-                className="filter-input"
-              />
-            </div>
+          <div className="price-filters-elite">
+            <input
+              type="number"
+              placeholder="Min ₹"
+              value={minPrice}
+              onChange={(e) => setMinPrice(e.target.value)}
+              className="premium-input"
+            />
+            <span className="price-sep">to</span>
+            <input
+              type="number"
+              placeholder="Max ₹"
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(e.target.value)}
+              className="premium-input"
+            />
           </div>
 
           {(category || minPrice || maxPrice) && (
-            <button
-              className="clear-filters-btn"
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="btn-clear-elite"
               onClick={() => {
                 setCategory('')
                 setMinPrice('')
                 setMaxPrice('')
               }}
             >
-              Clear Filters
-            </button>
+              <X size={16} />
+              Reset
+            </motion.button>
           )}
         </div>
-      </section>
+      </motion.section>
 
-      {listings.length === 0 ? (
-        <div className="empty-state">
-          <p className="empty-icon">📦</p>
-          <p>No listings yet. Be the first to post!</p>
+      {error ? (
+        <div className="error-card glass">
+          <p>{error}</p>
         </div>
+      ) : listings.length === 0 ? (
+        <motion.div
+          className="empty-state-elite"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          <div className="empty-icon-wrap">
+            <ShoppingBag size={64} />
+          </div>
+          <h3>The ecosystem is quiet...</h3>
+          <p>Be the first to introduce something beautiful.</p>
+          <Link to="/listings/new" className="btn-premium">Create Listing</Link>
+        </motion.div>
       ) : (
-        <section className="listings-grid">
+        <motion.section
+          className="listing-grid-elite"
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+        >
           {listings.map((item) => (
-            <div key={item.id} className="listing-card-container">
-              <Link to={`/listings/${item.id}`} className="listing-card-link">
-                <article className="listing-card">
-                  {item.images && item.images.length > 0 ? (
-                    <img
-                      src={item.images[0].url}
-                      alt={item.title}
-                      className="listing-card-image"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src =
-                          'https://via.placeholder.com/300x200?text=No+Image'
-                      }}
-                    />
-                  ) : (
-                    <div className="listing-card-no-image">
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <polyline points="21 15 16 10 5 21" />
-                      </svg>
-                    </div>
-                  )}
-                  <header>
-                    <h3>{item.title}</h3>
-                    {currentUserId !== item.owner_id && (
-                      <button
-                        className={`card-wishlist-btn ${wishlistIds.has(item.id) ? 'active' : ''}`}
-                        onClick={(e) => handleWishlistToggle(e, item.id)}
-                        title={wishlistIds.has(item.id) ? 'Remove from wishlist' : 'Add to wishlist'}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill={wishlistIds.has(item.id) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                        </svg>
-                      </button>
+            <motion.div key={item.id} variants={itemVariants} className="elite-card-wrap">
+              <Link to={`/listings/${item.id}`} className="elite-card-link">
+                <article className="elite-card">
+                  <div className="card-image-wrap">
+                    {item.images && item.images.length > 0 ? (
+                      <img
+                        src={item.images[0].url}
+                        alt={item.title}
+                        className="elite-card-image"
+                      />
+                    ) : (
+                      <div className="no-image-elite">
+                        <Package size={48} />
+                      </div>
                     )}
-                  </header>
-                  <p className="meta">
-                    {item.category || 'General'} · {item.city || 'Unknown city'}
-                  </p>
-                  <p className="description">
-                    {item.description.length > 80 ? item.description.slice(0, 80) + '...' : item.description}
-                  </p>
-                  <div className="card-footer">
-                    <span className="price">₹{item.price.toLocaleString()}</span>
+
+                    <div className="card-overlay">
+                      {currentUserId !== item.owner_id && (
+                        <button
+                          className={`btn-wishlist-elite ${wishlistIds.has(item.id) ? 'active' : ''}`}
+                          onClick={(e) => handleWishlistToggle(e, item.id)}
+                        >
+                          <Heart size={20} fill={wishlistIds.has(item.id) ? "currentColor" : "none"} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="card-content-elite">
+                    <div className="card-meta-elite">
+                      <MapPin size={12} />
+                      <span>{item.city || 'Global'}</span>
+                      <span className="dot">·</span>
+                      <span>{item.category?.split(' ')[0] || 'Curated'}</span>
+                    </div>
+
+                    <h3 className="card-title-elite">{item.title}</h3>
+                    <p className="card-desc-elite">{item.description}</p>
+
+                    <div className="card-footer-elite">
+                      <div className="price-wrap-elite">
+                        <span className="price-elite">₹{item.price.toLocaleString()}</span>
+                      </div>
+                      <div className="btn-view-elite">
+                        <span>View</span>
+                        <ArrowRight size={16} />
+                      </div>
+                    </div>
                   </div>
                 </article>
               </Link>
-              {currentUserId === item.owner_id && (
-                <div className="card-actions-wrapper">
-                  <button
-                    className="three-dot-btn"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      setActiveMenu(activeMenu === item.id ? null : item.id)
-                    }}
-                  >
-                    ⋮
-                  </button>
-                  {activeMenu === item.id && (
-                    <div className="actions-dropdown" ref={menuRef}>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          navigate(`/listings/edit/${item.id}`)
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="delete-btn"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          handleDelete(item.id)
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            </motion.div>
           ))}
-        </section>
+        </motion.section>
       )}
-    </>
+    </div>
   )
 }

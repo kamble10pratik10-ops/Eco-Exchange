@@ -1,224 +1,243 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+    Camera,
+    Upload,
+    X,
+    Sparkles,
+    ArrowRight,
+    Info,
+    Package,
+    Check
+} from 'lucide-react'
+import './NewListingPage.css'
 
 const API_URL = 'http://127.0.0.1:8000'
 
-export default function NewListingPage({
-    token,
-}: {
-    token: string | null
-}) {
-    const [title, setTitle] = useState('')
-    const [description, setDescription] = useState('')
-    const [price, setPrice] = useState('')
-    const [category, setCategory] = useState('')
-    const [city, setCity] = useState('')
+export default function NewListingPage({ token }: { token: string | null }) {
+    const [step, setStep] = useState(1)
+    const [formData, setFormData] = useState({
+        title: '',
+        description: '',
+        price: '',
+        category: '',
+        city: '',
+    })
     const [images, setImages] = useState<File[]>([])
     const [previews, setPreviews] = useState<string[]>([])
-    const [uploading, setUploading] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [success, setSuccess] = useState<string | null>(null)
+
     const navigate = useNavigate()
 
+    const CATEGORIES = [
+        "Electronics & Technology",
+        "Fashion & Apparel",
+        "Health, Personal Care",
+        "Home, Kitchen & Furniture",
+        "Sports & Outdoors",
+        "Books & Media",
+        "Toys & Games"
+    ]
+
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files
-        if (files) {
-            const newFiles = Array.from(files)
-            setImages(prev => [...prev, ...newFiles])
-
-            newFiles.forEach(file => {
-                const reader = new FileReader()
-                reader.onloadend = () => {
-                    setPreviews(prev => [...prev, reader.result as string])
-                }
-                reader.readAsDataURL(file)
-            })
+        if (e.target.files) {
+            const newFiles = Array.from(e.target.files)
+            setImages([...images, ...newFiles])
+            const newPreviews = newFiles.map(file => URL.createObjectURL(file))
+            setPreviews([...previews, ...newPreviews])
         }
     }
 
-    const removeImage = (index: number) => {
-        setImages(prev => prev.filter((_, i) => i !== index))
-        setPreviews(prev => prev.filter((_, i) => i !== index))
+    const removePhoto = (index: number) => {
+        const newImages = [...images]
+        newImages.splice(index, 1)
+        setImages(newImages)
+
+        const newPreviews = [...previews]
+        newPreviews.splice(index, 1)
+        setPreviews(newPreviews)
     }
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        if (!token) {
-            setError('You must be logged in to post an ad.')
-            return
-        }
+    const handleSubmit = async () => {
+        if (!token) return
         setLoading(true)
         setError(null)
-        setSuccess(null)
-
-        const uploadedUrls: string[] = []
 
         try {
-            // 1. Upload all images in parallel directly to Cloudinary
-            if (images.length > 0) {
-                setUploading(true)
-
-                // Fetch signature from backend
-                const sigRes = await fetch(`${API_URL}/chat/cloudinary-signature`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                })
-                if (!sigRes.ok) throw new Error('Could not get upload signature')
-                const sigData = await sigRes.json()
-
-                const uploadPromises = images.map(async (file) => {
-                    const formData = new FormData()
-                    formData.append('file', file)
-                    formData.append('api_key', sigData.api_key)
-                    formData.append('timestamp', sigData.timestamp)
-                    formData.append('signature', sigData.signature)
-                    formData.append('folder', sigData.folder)
-
-                    const res = await fetch(`https://api.cloudinary.com/v1_1/${sigData.cloud_name}/image/upload`, {
-                        method: 'POST',
-                        body: formData
-                    })
-
-                    if (!res.ok) {
-                        const err = await res.json()
-                        throw new Error(err.error?.message || 'Direct upload failed')
-                    }
-                    const data = await res.json()
-                    return data.secure_url as string
-                })
-
-                const resUrls = await Promise.all(uploadPromises)
-                uploadedUrls.push(...resUrls)
-
-                setUploading(false)
+            const payload = {
+                ...formData,
+                price: parseFloat(formData.price),
             }
 
-            // 2. Create listing
             const res = await fetch(`${API_URL}/listings`, {
                 method: 'POST',
                 headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json"
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify({
-                    title,
-                    description,
-                    price: Number(price),
-                    category: category || null,
-                    city: city || null,
-                    image_urls: uploadedUrls,
-                }),
+                body: JSON.stringify(payload),
             })
-            if (!res.ok) {
-                const data = await res.json().catch(() => null)
-                throw new Error(data?.detail ?? 'Failed to create listing')
+
+            if (!res.ok) throw new Error('Failed to create listing profile')
+            const listing = await res.json()
+
+            if (images.length > 0) {
+                const bulkData = new FormData()
+                images.forEach(file => bulkData.append('files', file))
+
+                const uploadRes = await fetch(`${API_URL}/listings/${listing.id}/images/bulk`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: bulkData,
+                })
+
+                if (!uploadRes.ok) throw new Error('Bulk image synchronization failed')
             }
-            setSuccess('Listing posted!')
-            setTimeout(() => navigate('/'), 1000)
+
+            navigate(`/listings/${listing.id}`)
         } catch (e: any) {
-            setError(e.message ?? 'Failed to create listing')
-            setUploading(false)
+            setError(e.message)
         } finally {
             setLoading(false)
         }
     }
 
     return (
-        <section className="form-card">
-            <h2>Post a new ad</h2>
-            <p className="form-subtitle">Describe the item you want to sell</p>
-            <form onSubmit={handleSubmit} className="form">
-                <label>
-                    Title
-                    <input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="e.g. iPhone 13 Pro Max"
-                        required
-                    />
-                </label>
-                <label>
-                    Description
-                    <textarea
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        rows={4}
-                        placeholder="Describe condition, features, reason for selling…"
-                        required
-                    />
-                </label>
-                <div className="form-row">
-                    <label>
-                        Price (₹)
-                        <input
-                            type="number"
-                            min={0}
-                            value={price}
-                            onChange={(e) => setPrice(e.target.value)}
-                            placeholder="0"
-                            required
-                        />
-                    </label>
-                    <label>
-                        Category
-                        <input
-                            value={category}
-                            onChange={(e) => setCategory(e.target.value)}
-                            placeholder="Mobiles, Electronics…"
-                        />
-                    </label>
-                </div>
-                <label>
-                    City
-                    <input
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        placeholder="Mumbai, Pune…"
-                    />
-                </label>
+        <div className="listing-studio">
+            <header className="studio-header">
+                <Sparkles size={32} className="emerald-glow" style={{ marginBottom: '16px' }} />
+                <h1 className="text-gradient">Listing Studio</h1>
+                <p style={{ color: 'var(--text-secondary)' }}>Curate your item's narrative within the ecosystem.</p>
+            </header>
 
-                <div className="image-upload-section">
-                    <label className="image-upload-label">
-                        Photos (Select multiple)
-                        <div className="image-dropzone">
-                            <div className="dropzone-content">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
-                                <span>Add more images</span>
-                            </div>
-                            <input
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                onChange={handleImageChange}
-                                className="file-input"
-                            />
-                        </div>
-                    </label>
+            <div className="listing-steps-container">
+                <AnimatePresence mode="wait">
+                    {step === 1 && (
+                        <motion.div
+                            key="step1"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            className="studio-step-card"
+                        >
+                            <span className="step-indicator-lite">Step 01 — Visuals</span>
+                            <h3>Capture the Essence</h3>
+                            <p style={{ color: 'var(--text-secondary)', marginBottom: '32px' }}>High-quality images increase trust and impact scores.</p>
 
-                    {previews.length > 0 && (
-                        <div className="previews-grid">
-                            {previews.map((preview, idx) => (
-                                <div key={idx} className="preview-item">
-                                    <img src={preview} alt={`Preview ${idx}`} />
-                                    <button
-                                        type="button"
-                                        className="remove-preview-btn"
-                                        onClick={() => removeImage(idx)}
-                                    >
-                                        ✕
-                                    </button>
+                            <label className="canvas-dropzone">
+                                <input type="file" multiple accept="image/*" onChange={handleImageChange} hidden />
+                                <div className="dropzone-inner">
+                                    <Camera size={48} color="var(--text-secondary)" />
+                                    <p>Drag photos or click to browse</p>
+                                    <span className="emerald-badge">Up to 10 photos</span>
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                            </label>
 
-                {error && <p className="error">{error}</p>}
-                {success && <p className="success">{success}</p>}
-                <button type="submit" disabled={loading || uploading}>
-                    {loading ? (uploading ? 'Uploading images…' : 'Posting…') : 'Post Ad'}
-                </button>
-            </form>
-        </section>
+                            {previews.length > 0 && (
+                                <div className="canvas-preview-grid">
+                                    {previews.map((url, i) => (
+                                        <div key={i} className="preview-thumbnail">
+                                            <img src={url} alt="" />
+                                            <button className="btn-remove-photo" onClick={() => removePhoto(i)}><X size={14} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="studio-footer">
+                                <button className="btn-studio-primary" onClick={() => setStep(2)}>
+                                    <span>Continue</span>
+                                    <ArrowRight size={18} />
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {step === 2 && (
+                        <motion.div
+                            key="step2"
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -20 }}
+                            className="studio-step-card"
+                        >
+                            <span className="step-indicator-lite">Step 02 — Narrative</span>
+                            <h3>The Narrative & Details</h3>
+                            <div className="elite-form" style={{ marginTop: '32px' }}>
+                                <div className="input-group-elite">
+                                    <label>Title</label>
+                                    <input
+                                        className="input-premium"
+                                        placeholder="e.g. Rare Vintage Film Camera"
+                                        value={formData.title}
+                                        onChange={e => setFormData({ ...formData, title: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="input-group-elite">
+                                    <label>Description</label>
+                                    <textarea
+                                        className="input-premium"
+                                        rows={6}
+                                        placeholder="Tell the story of this item..."
+                                        value={formData.description}
+                                        onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="input-row-elite" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                                    <div className="input-group-elite">
+                                        <label>Category</label>
+                                        <select
+                                            className="premium-select"
+                                            value={formData.category}
+                                            onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                        >
+                                            <option value="">Select Collection</option>
+                                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="input-group-elite">
+                                        <label>City / Region</label>
+                                        <input
+                                            className="input-premium"
+                                            placeholder="e.g. Mumbai"
+                                            value={formData.city}
+                                            onChange={e => setFormData({ ...formData, city: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="input-group-elite">
+                                    <label>Valuation (₹)</label>
+                                    <input
+                                        type="number"
+                                        className="input-premium"
+                                        placeholder="0.00"
+                                        value={formData.price}
+                                        onChange={e => setFormData({ ...formData, price: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="studio-footer">
+                                <button className="btn-studio-secondary" onClick={() => setStep(1)}>Back</button>
+                                <button
+                                    className="btn-studio-primary"
+                                    disabled={loading || !formData.title || !formData.price}
+                                    onClick={handleSubmit}
+                                >
+                                    <Check size={18} />
+                                    <span>{loading ? 'Deploying...' : 'Deploy to Ecosystem'}</span>
+                                </button>
+                            </div>
+                            {error && <p style={{ color: '#ef4444', marginTop: '16px', textAlign: 'center' }}>{error}</p>}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </div>
     )
 }

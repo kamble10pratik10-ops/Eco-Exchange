@@ -1,131 +1,155 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { Calendar, Package, ArrowRight, ShieldCheck, Globe, Settings } from 'lucide-react'
+import './HomePage.css'
 
 const API_URL = 'http://127.0.0.1:8000'
 
-type ProductImage = {
-    id: number
-    url: string
-}
-
-type Listing = {
-    id: number
-    title: string
-    description: string
-    price: number
-    category?: string | null
-    city?: string | null
-    is_active: boolean
-    owner_id: number
-    images: ProductImage[]
+type UserProfile = {
+  id: number
+  name: string
+  email: string
+  phone: string
+  profile_image_url?: string
+  followers_count?: number
+  following_count?: number
+  listings: any[]
 }
 
 export default function MyProfilePage({ token }: { token: string | null }) {
-    const [listings, setListings] = useState<Listing[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-    const [user, setUser] = useState<{
-        name: string;
-        email: string;
-        profile_image_url?: string | null;
-        followers_count?: number;
-        following_count?: number;
-    } | null>(null)
+  const { id } = useParams()
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [loading, setLoading] = useState(true)
 
-    useEffect(() => {
-        if (!token) return
+  useEffect(() => {
+    // If no ID is provided, we're viewing our own profile
+    const target = id ? `/users/${id}` : '/auth/me'
+    fetch(`${API_URL}${target}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.json())
+      .then(data => {
+        setProfile(data)
+        setLoading(false)
+      })
+  }, [id, token])
 
-        const fetchData = async () => {
-            try {
-                const [meRes, listingsRes] = await Promise.all([
-                    fetch(`${API_URL}/auth/me`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    }),
-                    fetch(`${API_URL}/listings/me`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    })
-                ])
+  if (loading) return <div className="loading-container-elite"><span>Retrieving community record...</span></div>
+  if (!profile) return <div className="error-card glass">Profile not found</div>
 
-                if (!meRes.ok || !listingsRes.ok) throw new Error('Failed to load profile data')
-
-                const meData = await meRes.json()
-                const listingsData = await listingsRes.json()
-
-                setUser(meData)
-                setListings(listingsData)
-            } catch (err: any) {
-                setError(err.message)
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        fetchData()
-    }, [token])
-
-    if (loading) return <p className="loading-text">Loading profile...</p>
-
-    return (
-        <div className="my-profile-page">
-            <header className="profile-hero">
-                <div className="profile-avatar-large">
-                    {user?.profile_image_url ? (
-                        <img src={user.profile_image_url} alt={user.name} />
-                    ) : (
-                        user?.name?.charAt(0).toUpperCase() || 'U'
-                    )}
-                </div>
-                <div className="profile-info-header">
-                    <h1>{user?.name}</h1>
-                    <p className="profile-email">{user?.email}</p>
-                    <div className="profile-stats">
-                        <span className="stat-item"><strong>{listings.length}</strong> Listings</span>
-                        <span className="stat-item"><strong>{user?.followers_count || 0}</strong> Followers</span>
-                        <span className="stat-item"><strong>{user?.following_count || 0}</strong> Following</span>
-                    </div>
-                </div>
-            </header>
-
-            <section className="my-listings-section">
-                <div className="section-header">
-                    <h2>My Posted Products</h2>
-                    <Link to="/listings/new" className="add-listing-btn-small">+ Post New</Link>
-                </div>
-
-                {error && <p className="error">{error}</p>}
-
-                {listings.length === 0 ? (
-                    <div className="empty-state">
-                        <div className="empty-icon">📦</div>
-                        <p>You haven't posted any products yet.</p>
-                        <Link to="/listings/new" className="browse-btn">Create your first listing</Link>
-                    </div>
-                ) : (
-                    <div className="listings-grid">
-                        {listings.map((item) => (
-                            <Link key={item.id} to={`/listings/${item.id}`} className="listing-card-link">
-                                <article className="listing-card">
-                                    {item.images && item.images.length > 0 ? (
-                                        <img src={item.images[0].url} alt={item.title} className="listing-card-image" />
-                                    ) : (
-                                        <div className="listing-card-no-image">No Image</div>
-                                    )}
-                                    <header>
-                                        <h3>{item.title}</h3>
-                                    </header>
-                                    <p className="meta">{item.city || 'Unknown city'}</p>
-                                    <div className="card-footer">
-                                        <span className="price">₹{item.price.toLocaleString()}</span>
-                                        <span className={`status-badge ${item.is_active ? 'active' : 'sold'}`}>
-                                            {item.is_active ? 'Active' : 'Sold'}
-                                        </span>
-                                    </div>
-                                </article>
-                            </Link>
-                        ))}
-                    </div>
-                )}
-            </section>
+  return (
+    <div className="community-profile-elite" style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
+      <motion.section
+        className="profile-header-premium"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          padding: '60px',
+          background: 'var(--surface-glass)',
+          borderRadius: 'var(--radius-xl)',
+          border: '1px solid var(--border-glass)',
+          display: 'flex',
+          gap: '40px',
+          alignItems: 'center'
+        }}
+      >
+        <div className="profile-avatar-large" style={{
+          width: '120px',
+          height: '120px',
+          borderRadius: '50%',
+          background: 'var(--surface-glass-bright)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '2px solid var(--accent-emerald)',
+          fontSize: '3.5rem',
+          fontWeight: '700',
+          color: 'var(--accent-emerald)',
+          boxShadow: '0 0 30px rgba(16, 185, 129, 0.2)',
+          overflow: 'hidden'
+        }}>
+          {profile.profile_image_url ? (
+            <img src={profile.profile_image_url} alt={profile.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            profile.name?.[0] || 'U'
+          )}
         </div>
-    )
+
+        <div className="profile-info-main" style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <h1 style={{ margin: 0, fontSize: '3rem' }} className="text-gradient">{profile.name}</h1>
+              <ShieldCheck size={28} className="emerald-glow" />
+            </div>
+
+            {!id && (
+              <Link to="/profile" className="btn-studio-primary" style={{ padding: '8px 20px', fontSize: '0.85rem' }}>
+                <Settings size={16} />
+                <span>Manage Identity</span>
+              </Link>
+            )}
+          </div>
+
+          <div className="profile-stats-row" style={{ display: 'flex', gap: '32px', marginBottom: '24px' }}>
+            <div className="stat-item-elite">
+              <span className="stat-value">{profile.followers_count || 0}</span>
+              <span className="stat-label">Followers</span>
+            </div>
+            <div className="stat-item-elite">
+              <span className="stat-value">{profile.following_count || 0}</span>
+              <span className="stat-label">Following</span>
+            </div>
+            <div className="stat-item-elite">
+              <span className="stat-value">{profile.listings?.length || 0}</span>
+              <span className="stat-label">Assets</span>
+            </div>
+          </div>
+
+          <div className="profile-meta-row" style={{ display: 'flex', gap: '24px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Globe size={16} />
+              <span>Global Citizen</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Calendar size={16} />
+              <span>Joined Feb 2026</span>
+            </div>
+          </div>
+        </div>
+      </motion.section >
+
+      <section className="profile-assets">
+        <h2 className="text-gradient" style={{ marginBottom: '32px' }}>Active Inventory</h2>
+        {(!profile.listings || profile.listings.length === 0) ? (
+          <div className="empty-state-elite">
+            <Package size={48} />
+            <p>No active catalog assets found.</p>
+          </div>
+        ) : (
+          <div className="listing-grid-elite">
+            {profile.listings.map((item: any) => (
+              <motion.div key={item.id} className="elite-card-wrap">
+                <article className="elite-card">
+                  {/* Reuse simplified card content */}
+                  <div className="card-image-wrap">
+                    <img src={item.images?.[0]?.url || 'https://placehold.co/400x400/1e293b/10b981?text=Listing'} alt="" className="elite-card-image" />
+                  </div>
+                  <div className="card-content-elite">
+                    <h3 className="card-title-elite">{item.title}</h3>
+                    <div className="card-footer-elite">
+                      <span className="price-elite">₹{item.price.toLocaleString()}</span>
+                      <Link to={`/listings/${item.id}`} className="btn-view-elite">
+                        <ArrowRight size={18} />
+                      </Link>
+                    </div>
+                  </div>
+                </article>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div >
+  )
 }

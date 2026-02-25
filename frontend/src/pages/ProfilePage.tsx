@@ -1,213 +1,249 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState, useRef } from 'react'
+import { motion } from 'framer-motion'
+import { Shield, User, Lock, Save, Sparkles, Camera, Loader2 } from 'lucide-react'
+import './AuthLayout.css'
 
 const API_URL = 'http://127.0.0.1:8000'
 
 export default function ProfilePage({ token }: { token: string | null }) {
-    const [name, setName] = useState('')
-    const [email, setEmail] = useState('')
-    const [phone, setPhone] = useState('')
-    const [password, setPassword] = useState('')
-    const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
-    const [followersCount, setFollowersCount] = useState(0)
-    const [followingCount, setFollowingCount] = useState(0)
+    const [formData, setFormData] = useState({
+        name: '',
+        email: '',
+        phone: '',
+        profile_image_url: '',
+    })
     const [loading, setLoading] = useState(true)
-    const [updating, setUpdating] = useState(false)
-    const [uploadLoading, setUploadLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-    const [success, setSuccess] = useState<string | null>(null)
-    const navigate = useNavigate()
+    const [uploading, setUploading] = useState(false)
+    const [status, setStatus] = useState<string | null>(null)
+    const fileRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
-        if (!token) {
-            navigate('/login')
-            return
-        }
-
-        const fetchProfile = async () => {
-            try {
-                const res = await fetch(`${API_URL}/auth/me`, {
-                    headers: { Authorization: `Bearer ${token}` },
+        if (!token) return
+        fetch(`${API_URL}/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then(r => r.json())
+            .then(data => {
+                setFormData({
+                    name: data.name || '',
+                    email: data.email || '',
+                    phone: data.phone || '',
+                    profile_image_url: data.profile_image_url || '',
                 })
-                if (!res.ok) throw new Error('Failed to load profile')
-                const data = await res.json()
-                setName(data.name)
-                setEmail(data.email)
-                setPhone(data.phone || '')
-                setProfileImageUrl(data.profile_image_url || null)
-                setFollowersCount(data.followers_count || 0)
-                setFollowingCount(data.following_count || 0)
-            } catch (e: any) {
-                setError(e.message)
-            } finally {
                 setLoading(false)
-            }
-        }
-        fetchProfile()
-    }, [token, navigate])
+            })
+    }, [token])
 
-    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file || !token) return
 
-        setUploadLoading(true)
-        setError(null)
-        const formData = new FormData()
-        formData.append('file', file)
+        setUploading(true)
+        const data = new FormData()
+        data.append('files', file)
 
         try {
-            const res = await fetch(`${API_URL}/chat/upload`, {
+            const res = await fetch(`${API_URL}/images/bulk`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` },
-                body: formData,
+                body: data
             })
-            if (!res.ok) throw new Error('Image upload failed')
-            const data = await res.json()
-            setProfileImageUrl(data.url)
-        } catch (err: any) {
-            setError(err.message)
+            if (!res.ok) throw new Error('Upload failed')
+            const urls = await res.json()
+            const newUrl = urls[0]
+
+            setFormData(prev => ({ ...prev, profile_image_url: newUrl }))
+
+            // Auto-save the new profile image to the backend immediately
+            await fetch(`${API_URL}/auth/profile`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    profile_image_url: newUrl
+                }),
+            })
+
+            window.dispatchEvent(new CustomEvent('profile-updated'))
+            setStatus('Biological signature synchronized.')
+        } catch (err) {
+            setStatus('Photo sync failed.')
         } finally {
-            setUploadLoading(false)
+            setUploading(false)
         }
     }
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault()
-        setUpdating(true)
-        setError(null)
-        setSuccess(null)
-
+        setStatus('Synchronizing identity...')
         try {
-            const body: any = {
-                name,
-                email,
-                phone,
-                profile_image_url: profileImageUrl
-            }
-            if (password) body.password = password
-
             const res = await fetch(`${API_URL}/auth/profile`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
+                    Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify(body),
+                body: JSON.stringify({
+                    name: formData.name,
+                    phone: formData.phone,
+                    profile_image_url: formData.profile_image_url
+                }),
             })
-
-            if (!res.ok) {
-                const data = await res.json()
-                throw new Error(data.detail || 'Update failed')
+            if (res.ok) {
+                setStatus('Identity updated in ecosystem.')
+                window.dispatchEvent(new CustomEvent('profile-updated'))
             }
-
-            setSuccess('Profile updated successfully!')
-            setPassword('') // Clear password field
-        } catch (e: any) {
-            setError(e.message)
-        } finally {
-            setUpdating(false)
-        }
+            else throw new Error('Update failed')
+        } catch (err) { setStatus('Sync interruption detected.') }
     }
 
-    if (loading) return <p className="loading-text">Loading profile...</p>
+    if (loading) return <div className="loading-container-elite"><span>Accessing the vault...</span></div>
 
     return (
-        <section className="form-card">
-            <h2>Account Settings</h2>
-            <p className="form-subtitle">Update your personal information</p>
+        <div className="profile-settings-elite" style={{ maxWidth: '800px', margin: '0 auto', paddingBottom: '100px' }}>
+            <header className="page-header-elite" style={{ marginBottom: '60px', textAlign: 'center' }}>
+                <h1 className="text-gradient">Identity Vault</h1>
+                <p style={{ color: 'var(--text-secondary)' }}>Manage your digital presence and biological identifiers.</p>
+            </header>
 
-            <div className="profile-stats-bar">
-                <div className="stat-card">
-                    <span className="stat-value">{followersCount}</span>
-                    <span className="stat-label">Followers</span>
-                </div>
-                <div className="stat-card">
-                    <span className="stat-value">{followingCount}</span>
-                    <span className="stat-label">Following</span>
-                </div>
-            </div>
-
-            <form onSubmit={handleSubmit} className="form">
-                <div className="profile-photo-upload">
-                    <div className="profile-photo-preview">
-                        {profileImageUrl ? (
-                            <img src={profileImageUrl} alt="Profile" />
-                        ) : (
-                            <div className="avatar-placeholder">{name?.[0]?.toUpperCase() || 'U'}</div>
-                        )}
-                        {uploadLoading && <div className="upload-overlay">...</div>}
+            <div className="settings-grid-elite" style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
+                <motion.section
+                    className="studio-step-card"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+                        <User className="emerald-glow" />
+                        <h3 style={{ margin: 0 }}>Biological Persona</h3>
                     </div>
-                    <div className="photo-upload-controls">
-                        <label className="file-input-label">
-                            {profileImageUrl ? 'Change Photo' : 'Upload Photo'}
-                            <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleImageUpload}
-                                hidden
-                            />
-                        </label>
-                        {profileImageUrl && (
+
+                    <div className="photo-upload-section" style={{ marginBottom: '40px', display: 'flex', alignItems: 'center', gap: '30px' }}>
+                        <div className="profile-preview-wrap" style={{ position: 'relative' }}>
+                            <div style={{
+                                width: '100px',
+                                height: '100px',
+                                borderRadius: '50%',
+                                overflow: 'hidden',
+                                border: '2px solid var(--accent-emerald)',
+                                background: 'var(--bg-obsidian)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                {formData.profile_image_url ? (
+                                    <img src={formData.profile_image_url} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                    <User size={40} className="text-muted" />
+                                )}
+                            </div>
                             <button
-                                type="button"
-                                className="remove-photo-btn"
-                                onClick={() => setProfileImageUrl(null)}
+                                className="cam-btn"
+                                onClick={() => fileRef.current?.click()}
+                                style={{
+                                    position: 'absolute',
+                                    bottom: '0',
+                                    right: '0',
+                                    background: 'var(--accent-emerald)',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '32px',
+                                    height: '32px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                }}
                             >
-                                Remove
+                                {uploading ? <Loader2 size={16} className="animate-spin text-black" /> : <Camera size={16} className="text-black" />}
                             </button>
-                        )}
+                            <input type="file" ref={fileRef} hidden onChange={handlePhotoUpload} accept="image/*" />
+                        </div>
+                        <div>
+                            <h4 style={{ margin: '0 0 4px 0' }}>Identifier Photo</h4>
+                            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Used for ecosystem recognition across the platform.</p>
+                        </div>
                     </div>
-                </div>
 
-                <label>
-                    Full Name
-                    <input
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="Your Name"
-                        required
-                    />
-                </label>
+                    <form onSubmit={handleUpdate} className="elite-form">
+                        <div className="input-group-elite">
+                            <label>Full Biological Name</label>
+                            <input
+                                className="input-premium"
+                                value={formData.name}
+                                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                            />
+                        </div>
 
-                <label>
-                    Email Address
-                    <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="example@mail.com"
-                        required
-                    />
-                </label>
+                        <div className="input-row-elite" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                            <div className="input-group-elite">
+                                <label>Communication Email</label>
+                                <input
+                                    className="input-premium"
+                                    type="email"
+                                    value={formData.email}
+                                    disabled
+                                    style={{ opacity: 0.6 }}
+                                />
+                            </div>
+                            <div className="input-group-elite">
+                                <label>Vocal Terminal (Phone)</label>
+                                <input
+                                    className="input-premium"
+                                    value={formData.phone}
+                                    onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                                />
+                            </div>
+                        </div>
 
-                <label>
-                    Phone Number
-                    <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. +91 9876543210"
-                    />
-                </label>
+                        <button type="submit" className="btn-studio-primary" style={{ width: 'fit-content', marginLeft: 'auto' }}>
+                            <Save size={18} />
+                            <span>Save Changes</span>
+                        </button>
+                    </form>
+                </motion.section >
 
-                <label>
-                    New Password (leave blank to keep current)
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        minLength={6}
-                    />
-                </label>
+                <motion.section
+                    className="studio-step-card"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+                        <Shield className="emerald-glow" />
+                        <h3 style={{ margin: 0 }}>Security Protocol</h3>
+                    </div>
 
-                {error && <p className="error">{error}</p>}
-                {success && <p className="success">{success}</p>}
+                    <div className="elite-form">
+                        <div className="input-group-elite">
+                            <label>Current Access Key</label>
+                            <input className="input-premium" type="password" placeholder="••••••••" />
+                        </div>
+                        <div className="input-group-elite">
+                            <label>New Access Key</label>
+                            <input className="input-premium" type="password" placeholder="••••••••" />
+                        </div>
 
-                <button type="submit" disabled={updating}>
-                    {updating ? 'Updating...' : 'Save Changes'}
-                </button>
-            </form>
-        </section>
+                        <button className="btn-studio-primary" style={{ width: 'fit-content', marginLeft: 'auto', background: 'transparent', border: '1px solid var(--border-glass)', color: '#fff' }}>
+                            <Lock size={18} />
+                            <span>Rotate Access Key</span>
+                        </button>
+                    </div>
+                </motion.section>
+
+                {status && (
+                    <motion.div
+                        className="status-toast glass"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        style={{ padding: '20px', borderRadius: 'var(--radius-md)', textAlign: 'center', border: '1px solid var(--accent-emerald)', color: 'var(--accent-emerald)' }}
+                    >
+                        <Sparkles size={16} style={{ marginRight: '10px' }} />
+                        {status}
+                    </motion.div>
+                )}
+            </div>
+        </div>
     )
 }
