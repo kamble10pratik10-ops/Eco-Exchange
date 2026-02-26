@@ -71,6 +71,11 @@ class ProductImage(Base):
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, nullable=False)
     listing_id = Column(Integer, ForeignKey("listings.id"))
+    
+    # AI Verification Fields
+    quality_score = Column(Float, nullable=True)
+    ai_feedback = Column(Text, nullable=True) # JSON or descriptive text
+    
     listing = relationship("Listing", back_populates="images")
 
 

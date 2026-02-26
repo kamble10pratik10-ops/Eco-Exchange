@@ -77,6 +77,7 @@ class Listing(ListingBase):
     id: int
     is_active: bool
     owner_id: int
+    owner: Optional[UserPublic] = None
     images: List[ProductImage] = []
 
     class Config:
@@ -104,6 +105,7 @@ class SearchResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    is_verified: bool = True
 
 
 class TokenData(BaseModel):

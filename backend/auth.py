@@ -55,7 +55,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = int(payload.get("sub"))
 
-    except:
+    except Exception as e:
         raise credentials_exception
 
     user = db.query(models.User).filter(models.User.id == user_id).first()

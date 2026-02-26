@@ -29,12 +29,23 @@
     font-family: var(--font-body);
     font-size: 0.9rem;
     transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.premium-select option {
+    background-color: #1a1a1a; /* Dark solid background for the list */
+    color: #ffffff; /* Explicit white text */
+    padding: 10px;
 }
 
 .premium-select:focus,
 .premium-input:focus {
     outline: none;
     border-color: var(--accent-emerald);
+}
+
+.premium-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
 }
 
 .listing-grid-elite {

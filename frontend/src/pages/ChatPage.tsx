@@ -1,10 +1,14 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Paperclip, Send, ArrowLeft, ShieldCheck, User, X, FileText } from 'lucide-react'
+import { Paperclip, Send, ArrowLeft, ShieldCheck, User, X, FileText, Check, CheckCheck } from 'lucide-react'
 import './Chat.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? `http://${window.location.hostname}:8000`
+    : 'http://127.0.0.1:8000'
+
+const WS_URL = API_URL.replace('http', 'ws')
 
 type Message = {
     id: number
@@ -14,45 +18,89 @@ type Message = {
     attachment_url?: string
     attachment_type?: string
     attachment_public_id?: string
+    is_delivered: boolean
+    is_read: boolean
 }
 
 export default function ChatPage({ token }: { token: string | null }) {
     const { conversationId } = useParams()
     const [messages, setMessages] = useState<Message[]>([])
     const [content, setContent] = useState('')
-    const [partner] = useState({ name: 'Member', is_verified: true })
     const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null)
+    const [partner, setPartner] = useState({ name: 'Member', is_verified: true })
     const [attachment, setAttachment] = useState<{ url: string, type: string, public_id: string } | null>(null)
     const [uploading, setUploading] = useState(false)
     const navigate = useNavigate()
     const scrollRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
+    // 1. Fetch User Profile
     useEffect(() => {
         if (!token) return
-
-        // Fetch my profile to know my ID
         fetch(`${API_URL}/auth/me`, {
             headers: { Authorization: `Bearer ${token}` },
         })
             .then(r => r.json())
             .then(data => setCurrentUser(data))
             .catch(err => console.error("Auth fetch failed", err))
+    }, [token])
 
-        const fetchMessages = () => {
-            fetch(`${API_URL}/messages/${conversationId}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            })
-                .then((r) => r.json())
-                .then((data) => {
-                    if (Array.isArray(data)) {
-                        setMessages(data)
-                    }
+    // 2. Fetch Partner Details
+    useEffect(() => {
+        if (!token || !conversationId || !currentUser) return
+        fetch(`${API_URL}/messages/convo/${conversationId}/detail`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then(r => r.json())
+            .then(data => {
+                const isBuyer = data.buyer_id === currentUser.id
+                setPartner({
+                    name: isBuyer ? data.seller?.name : data.buyer?.name,
+                    is_verified: true
                 })
+            })
+            .catch(err => console.error("Details fetch fail", err))
+    }, [conversationId, token, currentUser])
+
+    // 3. Real-time Messaging (WebSocket + Initial Fetch)
+    useEffect(() => {
+        if (!token || !conversationId) return
+
+        // Initial Load
+        fetch(`${API_URL}/messages/convo/${conversationId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then(r => {
+                if (r.status === 404) navigate('/messages');
+                return r.json();
+            })
+            .then(data => Array.isArray(data) && setMessages(data))
+
+        // Connect Sync Thread (WS)
+        const socket = new WebSocket(`${WS_URL}/messages/ws?token=${token}`)
+        
+        socket.onopen = () => {
+             // Mark conversation read
+             socket.send(JSON.stringify({ action: "mark_read", conversation_id: Number(conversationId) }))
         }
-        fetchMessages()
-        const interval = setInterval(fetchMessages, 3000)
-        return () => clearInterval(interval)
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data)
+            if (data.type === 'new_message' && data.message.conversation_id === Number(conversationId)) {
+                setMessages(prev => {
+                    if (prev.find(m => m.id === data.message.id)) return prev
+                    return [...prev, data.message]
+                })
+            }
+            if (data.type === 'messages_read' && data.conversation_id === Number(conversationId)) {
+                setMessages(prev => prev.map(m => m.sender_id !== data.reader_id ? { ...m, is_read: true, is_delivered: true } : m))
+            }
+            if (data.type === 'messages_delivered' && data.conversation_id === Number(conversationId)) {
+                setMessages(prev => prev.map(m => m.sender_id !== data.receiver_id ? { ...m, is_delivered: true } : m))
+            }
+        }
+
+        return () => socket.close()
     }, [conversationId, token])
 
     useEffect(() => {
@@ -90,7 +138,7 @@ export default function ChatPage({ token }: { token: string | null }) {
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault()
-        if ((!content.trim() && !attachment) || !token) return
+        if ((!content.trim() && !attachment) || !token || !currentUser) return
 
         const payload = {
             content: content.trim() || undefined,
@@ -99,11 +147,27 @@ export default function ChatPage({ token }: { token: string | null }) {
             attachment_public_id: attachment?.public_id
         }
 
+        // Optimistic UI Update
+        const tempId = Date.now()
+        const optimisticMsg: Message = {
+            id: tempId,
+            sender_id: currentUser.id,
+            content: payload.content || '',
+            created_at: new Date().toISOString(),
+            is_delivered: false,
+            is_read: false,
+            ...attachment && { 
+                 attachment_url: attachment.url, 
+                 attachment_type: attachment.type 
+            }
+        }
+        setMessages(prev => [...prev, optimisticMsg])
+        
         setContent('')
         setAttachment(null)
 
         try {
-            await fetch(`${API_URL}/messages/${conversationId}`, {
+            const res = await fetch(`${API_URL}/messages/convo/${conversationId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -111,7 +175,18 @@ export default function ChatPage({ token }: { token: string | null }) {
                 },
                 body: JSON.stringify(payload),
             })
-        } catch (err) { console.error(err) }
+            
+            if (res.ok) {
+                const realMsg = await res.json()
+                // Replace temp message with server message to get real ID
+                setMessages(prev => prev.map(m => m.id === tempId ? realMsg : m))
+            }
+        } catch (err) { 
+            console.error(err)
+            // Remove optimistic message on fail
+            setMessages(prev => prev.filter(m => m.id !== tempId))
+            alert("Transmission failure. Check your connection.")
+        }
     }
 
     return (
@@ -158,7 +233,20 @@ export default function ChatPage({ token }: { token: string | null }) {
                                     </div>
                                 )}
                                 {m.content && <div className="msg-text">{m.content}</div>}
-                                <span className="msg-time">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <div className="msg-brief-info">
+                                    <span className="msg-time">{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    {isMine && (
+                                        <div className="msg-status-ticks">
+                                            {m.is_read ? (
+                                                <CheckCheck size={16} color="#3498db" />
+                                            ) : m.is_delivered ? (
+                                                <CheckCheck size={16} opacity={0.6} />
+                                            ) : (
+                                                <Check size={16} opacity={0.6} />
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </motion.div>
                         )
                     })}

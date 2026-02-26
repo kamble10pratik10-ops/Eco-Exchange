@@ -299,11 +299,7 @@ function App() {
             <DashboardPage token={auth.token} />
           </ProtectedRoute>
         } />
-        <Route path="/users/:id" element={
-          <ProtectedRoute token={auth.token}>
-            <PublicProfilePage token={auth.token} />
-          </ProtectedRoute>
-        } />
+        <Route path="/users/:id" element={<PublicProfilePage token={auth.token} />} />
       </Routes>
     </Layout>
   )

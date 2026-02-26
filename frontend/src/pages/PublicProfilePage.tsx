@@ -4,7 +4,9 @@ import { motion } from 'framer-motion'
 import { ShieldCheck, Globe, Package, ArrowRight, UserPlus, UserMinus, Calendar } from 'lucide-react'
 import './HomePage.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? `http://${window.location.hostname}:8000`
+  : 'http://127.0.0.1:8000'
 
 export default function PublicProfilePage({ token }: { token: string | null }) {
   const { id } = useParams()
@@ -14,24 +16,27 @@ export default function PublicProfilePage({ token }: { token: string | null }) {
   const [followLoading, setFollowLoading] = useState(false)
 
   useEffect(() => {
-    if (!id || !token) return
+    if (!id) return
 
     const fetchProfile = async () => {
       try {
-        const [pRes, fRes] = await Promise.all([
-          fetch(`${API_URL}/users/${id}/profile`, {
+        const fetchers = [
+          fetch(`${API_URL}/users/${id}/profile`)
+        ]
+
+        if (token) {
+          fetchers.push(fetch(`${API_URL}/users/${id}/follow-status`, {
             headers: { Authorization: `Bearer ${token}` }
-          }),
-          fetch(`${API_URL}/users/${id}/follow-status`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-        ])
+          }))
+        }
+
+        const [pRes, fRes] = await Promise.all(fetchers)
 
         if (pRes.ok) {
           const pData = await pRes.json()
           setProfile(pData)
         }
-        if (fRes.ok) {
+        if (fRes && fRes.ok) {
           const fData = await fRes.json()
           setIsFollowing(fData.is_following)
         }

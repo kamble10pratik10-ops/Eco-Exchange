@@ -22,8 +22,11 @@ from .chat_schemas import (
 )
 
 from jose import jwt, JWTError
+import cloudinary
+import cloudinary.uploader
+from starlette.concurrency import run_in_threadpool
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(tags=["chat"])
 
 # ─── WebSocket connection manager ───
 
@@ -90,6 +93,26 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query("")):
         return
 
     await manager.connect(websocket, user.id)
+    
+    # Upon connection, mark any messages sent to this user in any conversation as delivered
+    db.query(Message).filter(
+        Message.is_delivered == False,
+        Message.sender_id != user.id
+    ).join(Conversation).filter(
+        (Conversation.buyer_id == user.id) | (Conversation.seller_id == user.id)
+    ).update({"is_delivered": True})
+    db.commit()
+
+    # Notify partners that their messages were delivered
+    convos = db.query(Conversation).filter((Conversation.buyer_id == user.id) | (Conversation.seller_id == user.id)).all()
+    for c in convos:
+        other_id = c.seller_id if user.id == c.buyer_id else c.buyer_id
+        await manager.send_to_user(other_id, {
+            "type": "messages_delivered",
+            "conversation_id": c.id,
+            "receiver_id": user.id
+        })
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -137,9 +160,21 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query("")):
                     },
                 }
 
-                # Send to both participants
+                # Check if recipient is online
                 other_id = conv.seller_id if user.id == conv.buyer_id else conv.buyer_id
-                print(f"WS: Broadcasting message {msg.id} from user {user.id} to {user.id} and {other_id}")
+                receiver_online = manager.is_online(other_id)
+                
+                # Update message state
+                msg.is_delivered = receiver_online
+                db.commit()
+                db.refresh(msg)
+                
+                msg_data = {
+                    "type": "new_message",
+                    "message": MessageOut.model_validate(msg).model_dump(mode="json")
+                }
+
+                # Send to both participants
                 await manager.send_to_user(user.id, msg_data)
                 await manager.send_to_user(other_id, msg_data)
 
@@ -151,9 +186,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query("")):
                         Message.conversation_id == conv_id,
                         Message.sender_id != user.id,
                         Message.is_read == False,
-                    ).update({"is_read": True})
+                    ).update({"is_read": True, "is_delivered": True})
                     db.commit()
-                    await websocket.send_json({"type": "messages_read", "conversation_id": conv_id})
+                    other_id = conv.seller_id if user.id == conv.buyer_id else conv.buyer_id
+                    status_update = {"type": "messages_read", "conversation_id": conv_id, "reader_id": user.id}
+                    await manager.send_to_user(user.id, status_update)
+                    await manager.send_to_user(other_id, status_update)
 
             elif action == "typing":
                 conv_id = data.get("conversation_id")
@@ -226,32 +264,49 @@ def list_conversations(
     return [_build_conversation_out(c, current_user.id, db) for c in convos]
 
 
-@router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
-def get_conversation(
+@router.get("/convo/{conversation_id}", response_model=list[MessageOut])
+def get_conversation_messages(
     conversation_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Get a conversation with all messages."""
+    print(f"DEBUG: Backend fetching messages for ID {conversation_id}", flush=True)
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if current_user.id not in (conv.buyer_id, conv.seller_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Mark messages as read
+    messages = db.query(Message).filter(Message.conversation_id == conversation_id).order_by(Message.created_at).all()
+    
+    # Mark as read
     db.query(Message).filter(
         Message.conversation_id == conversation_id,
         Message.sender_id != current_user.id,
         Message.is_read == False,
     ).update({"is_read": True})
     db.commit()
+    
+    return messages
 
-    return conv
+
+@router.get("/convo/{conversation_id}/detail", response_model=ConversationOut)
+def get_conversation_detail(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Get metadata for a specific conversation."""
+    conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if current_user.id != conv.buyer_id and current_user.id != conv.seller_id:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    return _build_conversation_out(conv, current_user.id, db)
 
 
-@router.post("/conversations/{conversation_id}/messages", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
-def send_message(
+@router.post("/convo/{conversation_id}", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
+async def send_message(
     conversation_id: int,
     payload: MessageCreate,
     db: Session = Depends(get_db),
@@ -264,6 +319,10 @@ def send_message(
     if current_user.id not in (conv.buyer_id, conv.seller_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Delivery Check
+    other_id = conv.seller_id if current_user.id == conv.buyer_id else conv.buyer_id
+    receiver_online = manager.is_online(other_id)
+
     msg = Message(
         conversation_id=conversation_id,
         sender_id=current_user.id,
@@ -271,11 +330,19 @@ def send_message(
         attachment_url=payload.attachment_url,
         attachment_type=payload.attachment_type,
         attachment_public_id=payload.attachment_public_id,
+        is_delivered=receiver_online,
+        is_read=False
     )
     db.add(msg)
     conv.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(msg)
+    
+    print(f"DEBUG: Processing outgoing message for convo {conversation_id} from {current_user.id}")
+    # Broadcast to recipient if online
+    msg_data = {"type": "new_message", "message": MessageOut.model_validate(msg).model_dump(mode="json")}
+    await manager.send_to_user(other_id, msg_data)
+    
     return msg
 
 
@@ -286,16 +353,12 @@ async def upload_attachment(
 ):
     """Upload an image or video to Cloudinary."""
     try:
-        import cloudinary
-        import cloudinary.uploader
-
         # Configure Cloudinary
         cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME")
         api_key = os.environ.get("CLOUDINARY_API_KEY")
         api_secret = os.environ.get("CLOUDINARY_API_SECRET")
 
         if not all([cloud_name, api_key, api_secret]):
-            print("ERROR: Missing Cloudinary credentials in .env")
             raise HTTPException(status_code=500, detail="Cloudinary credentials missing in server .env file")
 
         cloudinary.config(
@@ -310,8 +373,6 @@ async def upload_attachment(
         if content_type.startswith("video"):
             resource_type = "video"
         elif content_type == "application/pdf":
-            # Using 'raw' for PDFs often avoids the '401 Unauthorized' (PDF Authentication) 
-            # issues that occur when PDFs are treated as images in some Cloudinary accounts.
             resource_type = "raw"
         elif content_type.startswith("image"):
             resource_type = "image"
@@ -321,7 +382,9 @@ async def upload_attachment(
         # Read file content as bytes
         file_bytes = await file.read()
         
-        result = cloudinary.uploader.upload(
+        # Run in threadpool to avoid blocking event loop
+        result = await run_in_threadpool(
+            cloudinary.uploader.upload,
             file_bytes,
             folder="exo_exchange_chat",
             resource_type=resource_type,
@@ -334,10 +397,9 @@ async def upload_attachment(
             "public_id": result["public_id"],
             "resource_type": result.get("resource_type", resource_type),
         }
-    except ImportError:
-        raise HTTPException(status_code=500, detail="Cloudinary package not installed.")
     except Exception as e:
         print(f"UPLOAD ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Attachment upload failed: {str(e)}")
 @router.get("/cloudinary-signature")
 def get_cloudinary_signature(
     current_user: models.User = Depends(get_current_user),

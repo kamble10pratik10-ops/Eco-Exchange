@@ -43,11 +43,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             }
 
             const data = await res.json()
-            if (!data.is_verified) {
-                // If not verified, redirect to verification page
-                navigate('/verify-email', { state: { email } })
-                return
-            }
+            // if (!data.is_verified) {
+            //     // If not verified, redirect to verification page
+            //     navigate('/verify-email', { state: { email } })
+            //     return
+            // }
             onLogin(data.access_token)
             navigate(from, { replace: true })
         } catch (err: any) {

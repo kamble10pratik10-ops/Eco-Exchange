@@ -254,10 +254,38 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
 
                 {!isOwner && (
                     <div className="purchase-actions">
-                        <Link to={`/chat/${listing.id}?seller=${listing.owner_id}`} className="btn-chat-premium">
+                        <button 
+                            onClick={async () => {
+                                if (!token) return navigate('/login');
+                                try {
+                                    const res = await fetch(`${API_URL}/messages/conversations`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            Authorization: `Bearer ${token}`
+                                        },
+                                        body: JSON.stringify({ listing_id: Number(id) })
+                                    });
+                                    if (res.ok) {
+                                        const data = await res.json();
+                                        console.log(`[ListingDetail] Requested Listing ID: ${Number(id)}, Returned Conversation ID: ${data.id}`);
+                                        navigate(`/chat/${data.id}`);
+                                    } else {
+                                        const err = await res.json();
+                                        console.error("[ListingDetail] Signaling Fault:", err);
+                                        alert(err.detail || "Unable to start conversation");
+                                    }
+                                } catch (err) {
+                                    console.error(err);
+                                    alert("Connection fault in signaling thread");
+                                }
+                            }} 
+                            className="btn-chat-premium"
+                            style={{ width: '100%', border: 'none', cursor: 'pointer' }}
+                        >
                             <MessageSquare size={20} />
                             <span>Secure Negotiation</span>
-                        </Link>
+                        </button>
                         <p className="trust-footer">
                             <Shield size={12} />
                             Your payment is protected by Eco-Exchange Vault.

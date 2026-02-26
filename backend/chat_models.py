@@ -38,6 +38,7 @@ class Message(Base):
     attachment_type = Column(String, nullable=True)  # "image" or "video"
     attachment_public_id = Column(String, nullable=True)
     
+    is_delivered = Column(Boolean, default=False)
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 

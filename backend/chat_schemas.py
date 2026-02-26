@@ -20,6 +20,7 @@ class MessageOut(BaseModel):
     attachment_url: Optional[str] = None
     attachment_type: Optional[str] = None
     attachment_public_id: Optional[str] = None
+    is_delivered: bool
     is_read: bool
     created_at: datetime
 
