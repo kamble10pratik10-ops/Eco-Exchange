@@ -12,7 +12,9 @@ import {
     Calendar,
     MapPin,
     Edit3,
-    Trash2
+    Trash2,
+    Sparkles,
+    Loader2
 } from 'lucide-react'
 import './ListingDetailPage.css'
 
@@ -20,7 +22,12 @@ const API_URL = window.location.hostname === 'localhost' || window.location.host
     ? `http://${window.location.hostname}:8000`
     : 'http://127.0.0.1:8000'
 
-type ProductImage = { id: number; url: string }
+type ProductImage = {
+    id: number
+    url: string
+    quality_score?: number | null
+    ai_feedback?: string | null
+}
 
 type Listing = {
     id: number
@@ -85,6 +92,35 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
         }
         fetchDetail()
     }, [id, token])
+
+    // Poll for AI Score updates if it's still null
+    useEffect(() => {
+        if (!listing) return
+        const needsPolling = listing.images.some(img => img.quality_score === null || img.quality_score === undefined)
+        if (!needsPolling) return
+
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_URL}/listings/${id}`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                })
+                if (res.ok) {
+                    const data = await res.json()
+
+                    // If any image got its score updated from null, refresh the entire state
+                    const stillNeedsPolling = data.images.some((img: any) => img.quality_score === null || img.quality_score === undefined)
+                    if (!stillNeedsPolling) {
+                        setListing(data)
+                        clearInterval(interval)
+                    }
+                }
+            } catch (err) {
+                console.error("Polling error", err)
+            }
+        }, 5000)
+
+        return () => clearInterval(interval)
+    }, [id, token, listing])
 
     const handleWishlist = async () => {
         if (!token) return navigate('/login')
@@ -186,6 +222,45 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
                 <div className="detail-header-elite">
                     <div className="detail-meta-row">
                         <span className="emerald-badge">{listing.category || 'General'}</span>
+
+                        {listing.images?.[0] && (
+                            listing.images[0].quality_score !== null && listing.images[0].quality_score !== undefined ? (
+                                <span className="ai-badge-elite" style={{
+                                    background: listing.images[0].quality_score < 5 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                                    color: listing.images[0].quality_score < 5 ? '#ef4444' : '#10b981',
+                                    border: listing.images[0].quality_score < 5 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16,185,129,0.3)',
+                                    padding: '4px 10px',
+                                    borderRadius: '12px',
+                                    fontSize: '0.8rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    fontWeight: 600
+                                }}>
+                                    <Sparkles size={14} />
+                                    AI Verified: {listing.images[0].quality_score}/10
+                                </span>
+                            ) : (
+                                <span className="ai-badge-elite" style={{
+                                    background: 'rgba(59, 130, 246, 0.15)',
+                                    color: '#3b82f6',
+                                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                                    padding: '4px 10px',
+                                    borderRadius: '12px',
+                                    fontSize: '0.8rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    fontWeight: 600
+                                }}>
+                                    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}>
+                                        <Loader2 size={14} />
+                                    </motion.div>
+                                    AI Analyzing...
+                                </span>
+                            )
+                        )}
+
                         <div className="meta-actions">
                             {isOwner ? (
                                 <>
@@ -254,7 +329,7 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
 
                 {!isOwner && (
                     <div className="purchase-actions">
-                        <button 
+                        <button
                             onClick={async () => {
                                 if (!token) return navigate('/login');
                                 try {
@@ -279,7 +354,7 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
                                     console.error(err);
                                     alert("Connection fault in signaling thread");
                                 }
-                            }} 
+                            }}
                             className="btn-chat-premium"
                             style={{ width: '100%', border: 'none', cursor: 'pointer' }}
                         >

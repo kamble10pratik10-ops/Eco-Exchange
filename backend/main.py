@@ -455,6 +455,18 @@ def create_listing(
         except Exception as cache_err:
             print(f"!!! WARNING: Cache invalidation failed: {cache_err}", flush=True)
             
+        # --- TRIGGER AI DETECTION (KIMI-K2.5) ---
+        try:
+            from .ai_inspector import AIInspector
+            import threading
+            image_records = db.query(models.ProductImage).filter(models.ProductImage.listing_id == listing.id).all()
+            for img_rec in image_records:
+                if img_rec.quality_score is None:
+                    print(f"--> [AI-TRIGGER] Launching Kimi inspection for Image {img_rec.id}")
+                    threading.Thread(target=AIInspector.analyze_image, args=(None, img_rec.id), daemon=True).start()
+        except Exception as ai_err:
+            print(f"!!! AI Trigger Failed on Creation: {ai_err}")
+
         return listing
     except Exception as e:
         import traceback
@@ -516,7 +528,20 @@ async def upload_listing_images_bulk(
         db.add(img)
     db.commit()
     
-    return {"urls": urls, "message": f"{len(urls)} images synchronized."}
+    # --- TRIGGER AI DETECTION (KIMI-K2.5) ---
+    try:
+        from .ai_inspector import AIInspector
+        # We fetch the fresh records to get their IDs
+        image_records = db.query(models.ProductImage).filter(models.ProductImage.listing_id == listing_id).all()
+        for img_rec in image_records:
+            if img_rec.quality_score is None:
+                print(f"--> [AI-TRIGGER] Launching Kimi inspection for Image {img_rec.id}")
+                # For now, we run it in a background thread to avoid blocking the user
+                threading.Thread(target=AIInspector.analyze_image, args=(None, img_rec.id), daemon=True).start()
+    except Exception as ai_err:
+        print(f"!!! AI Trigger Failed: {ai_err}")
+
+    return {"urls": urls, "message": f"{len(urls)} images synchronized and queued for AI analysis."}
 
 
 @app.get("/listings", response_model=list[schemas.Listing])

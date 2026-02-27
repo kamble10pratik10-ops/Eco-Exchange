@@ -9,7 +9,8 @@ import {
   X,
   Package,
   Sparkles,
-  ShoppingBag
+  ShoppingBag,
+  Loader2
 } from 'lucide-react'
 import './HomePage.css'
 
@@ -18,6 +19,7 @@ const API_URL = 'http://127.0.0.1:8000'
 type ProductImage = {
   id: number
   url: string
+  quality_score?: number | null
 }
 
 type Listing = {
@@ -90,6 +92,39 @@ export default function HomePage({ token }: { token: string | null }) {
     }
     load()
   }, [token, category, minPrice, maxPrice])
+
+  // Poll for AI Score updates if any listing is missing a quality_score
+  useEffect(() => {
+    const needsPolling = listings.some(l => l.images.some(img => img.quality_score === null || img.quality_score === undefined))
+    if (!needsPolling) return
+
+    const interval = setInterval(async () => {
+      try {
+        const params = new URLSearchParams()
+        if (category) params.append('category', category)
+        if (minPrice) params.append('min_price', minPrice)
+        if (maxPrice) params.append('max_price', maxPrice)
+
+        const res = await fetch(`${API_URL}/listings?${params.toString()}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          setListings(data)
+
+          const stillNeedsPolling = data.some((l: Listing) => l.images.some((img: ProductImage) => img.quality_score === null || img.quality_score === undefined))
+          if (!stillNeedsPolling) {
+            clearInterval(interval)
+          }
+        }
+      } catch (err) {
+        console.error("Polling error", err)
+      }
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [listings, token, category, minPrice, maxPrice])
 
   useEffect(() => {
     if (token) {
@@ -277,6 +312,52 @@ export default function HomePage({ token }: { token: string | null }) {
                     )}
 
                     <div className="card-overlay">
+                      {item.images?.[0] && (
+                        item.images[0].quality_score !== null && item.images[0].quality_score !== undefined ? (
+                          <div style={{
+                            position: 'absolute',
+                            top: '12px',
+                            left: '12px',
+                            background: item.images[0].quality_score < 5 ? 'rgba(239, 68, 68, 0.9)' : 'rgba(16, 185, 129, 0.9)',
+                            color: '#fff',
+                            padding: '4px 8px',
+                            borderRadius: '8px',
+                            fontSize: '0.75rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontWeight: 600,
+                            zIndex: 10,
+                            backdropFilter: 'blur(4px)'
+                          }}>
+                            <Sparkles size={12} />
+                            Condition: {item.images[0].quality_score}/10
+                          </div>
+                        ) : (
+                          <div style={{
+                            position: 'absolute',
+                            top: '12px',
+                            left: '12px',
+                            background: 'rgba(59, 130, 246, 0.9)',
+                            color: '#fff',
+                            padding: '4px 8px',
+                            borderRadius: '8px',
+                            fontSize: '0.75rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontWeight: 600,
+                            zIndex: 10,
+                            backdropFilter: 'blur(4px)'
+                          }}>
+                            <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}>
+                              <Loader2 size={12} />
+                            </motion.div>
+                            Analyzing
+                          </div>
+                        )
+                      )}
+
                       {currentUserId !== item.owner_id && (
                         <button
                           className={`btn-wishlist-elite ${wishlistIds.has(item.id) ? 'active' : ''}`}

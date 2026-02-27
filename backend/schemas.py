@@ -56,6 +56,8 @@ class ProductImage(BaseModel):
     id: int
     url: str
     listing_id: int
+    quality_score: Optional[float] = None
+    ai_feedback: Optional[str] = None
 
     class Config:
         from_attributes = True

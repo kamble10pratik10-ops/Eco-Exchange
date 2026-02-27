@@ -1,1 +1,1 @@
-print("Minimal test successful")
+print("Hello World - No Imports")
