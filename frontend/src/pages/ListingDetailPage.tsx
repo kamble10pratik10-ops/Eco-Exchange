@@ -14,7 +14,8 @@ import {
     Edit3,
     Trash2,
     Sparkles,
-    Loader2
+    Loader2,
+    Package
 } from 'lucide-react'
 import './ListingDetailPage.css'
 
@@ -44,6 +45,8 @@ type Listing = {
         profile_image_url?: string
     }
     images: ProductImage[]
+    accept_exchange?: boolean
+    exchange_preferences?: string | null
 }
 
 export default function ListingDetailPage({ token }: { token: string | null }) {
@@ -308,6 +311,24 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
                     <h3>The Narrative</h3>
                     <p className="description-elite">{listing.description}</p>
                 </div>
+
+                {listing.accept_exchange && (
+                    <div className="exchange-section glass" style={{ marginTop: '32px', padding: '24px', borderRadius: '16px', border: '1px solid var(--accent-emerald)', background: 'rgba(16, 185, 129, 0.03)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                            <Package size={24} className="emerald-glow" />
+                            <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Ecosystem Exchange</h3>
+                        </div>
+                        <p style={{ color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                            The owner is open to exchanging this item for something of equal value or interest.
+                        </p>
+                        {listing.exchange_preferences && (
+                            <div className="preference-box" style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', borderLeft: '3px solid var(--accent-emerald)' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--accent-emerald)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Seeking in returns:</span>
+                                <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--text-primary)' }}>"{listing.exchange_preferences}"</p>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="owner-section">
                     <h3>Guardian of this Item</h3>

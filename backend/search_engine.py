@@ -68,27 +68,23 @@ def preload_models():
 
 
 def _get_bi_encoder():
-    from sentence_transformers import SentenceTransformer
     global _bi_encoder
     if _bi_encoder is None:
         with _model_lock:
             if _bi_encoder is None:
-                print(f">>> Loading Bi-Encoder '{_BI_ENCODER_NAME}'...", flush=True)
-                _bi_encoder = SentenceTransformer(_BI_ENCODER_NAME)
-                print(f">>> Bi-Encoder '{_BI_ENCODER_NAME}' is ready.", flush=True)
-    return _bi_encoder
+                print(f">>> Bi-Encoder DISABLED FOR STABILITY", flush=True)
+                _bi_encoder = "DISABLED"
+    return None
 
 
 def _get_cross_encoder():
-    from sentence_transformers import CrossEncoder
     global _cross_encoder
     if _cross_encoder is None:
         with _model_lock:
             if _cross_encoder is None:
-                print(f">>> Loading Cross-Encoder '{_CROSS_ENC_NAME}'...", flush=True)
-                _cross_encoder = CrossEncoder(_CROSS_ENC_NAME, max_length=512)
-                print(f">>> Cross-Encoder '{_CROSS_ENC_NAME}' is ready.", flush=True)
-    return _cross_encoder
+                print(f">>> Cross-Encoder DISABLED FOR STABILITY", flush=True)
+                _cross_encoder = "DISABLED"
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,6 +140,8 @@ def _full_text(listing: models.Listing) -> str:
 def _embed_texts(texts: List[str]) -> np.ndarray:
     """Encode with the bi-encoder and L2-normalise (shape N×D)."""
     model = _get_bi_encoder()
+    if model is None or model == "DISABLED":
+        return np.zeros((len(texts), 384), dtype=np.float32)
     embs  = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
     return np.array(embs, dtype=np.float32)
 
@@ -235,8 +233,8 @@ def _field_weighted_dense(
             fallback = np.zeros(dim, dtype=np.float32)
         return float(np.dot(query_emb, fallback))
 
-    title_score = float(np.dot(query_emb, title_emb))
-    desc_score  = float(np.dot(query_emb, desc_emb))
+    title_score = float(np.dot(query_emb, title_emb)) if title_emb is not None else 0.0
+    desc_score  = float(np.dot(query_emb, desc_emb)) if desc_emb is not None else 0.0
     # Weighted combination: title counts 3×
     return (3.0 * title_score + desc_score) / 4.0
 
@@ -258,11 +256,14 @@ def _refresh_cache(db: Session) -> Tuple[List[models.Listing], np.ndarray]:
     """
     global _bm25_listings, _bm25_index, _bm25_dirty, _vocab_words
 
+    print("DEBUG: Querying listings...", flush=True)
     listings: List[models.Listing] = (
         db.query(models.Listing)
         .filter(models.Listing.is_active == True)  # noqa: E712
         .all()
     )
+    print(f"DEBUG: Query done. Found {len(listings)}.", flush=True)
+
 
     with _cache_lock:
         live_ids = {l.id for l in listings}
@@ -340,6 +341,9 @@ def _rerank_with_cross_encoder(
     rest      = candidates[top_n:]
 
     ce = _get_cross_encoder()
+    if ce is None or ce == "DISABLED":
+        return candidates
+
     pairs  = [(query, _full_text(item["listing"])) for item in to_rerank]
     scores = ce.predict(pairs, show_progress_bar=False)
 
@@ -397,7 +401,7 @@ def invalidate_query_cache() -> None:
 def semantic_search(
     query: str,
     db: Session,
-    top_k: int = 20,
+    top_k: int = 100,
     min_score: float = 0.35,
     use_cross_encoder: bool = True,
     dense_weight: float = 0.50,
@@ -420,18 +424,24 @@ def semantic_search(
         print(f"DEBUG: norm_query='{norm_query}', threshold={threshold:.2f}", flush=True)
 
         # ── 3. Load/refresh embedding cache + BM25 index
+        print("DEBUG: Refreshing cache...", flush=True)
         listings, emb_matrix = _refresh_cache(db)
+        print(f"DEBUG: Cache refreshed. {len(listings)} listings.", flush=True)
         if not listings:
             print("DEBUG: No active listings.", flush=True)
             return []
-        print(f"DEBUG: Found {len(listings)} listings.", flush=True)
-
+        
         # ── 4a. Dense scores
+        print("DEBUG: Calculating dense scores...", flush=True)
         query_emb   = _cached_query_embedding(norm_query)
         dense_scores = np.array(
             [_field_weighted_dense(query_emb, l) for l in listings],
             dtype=np.float32,
         )
+        print("DEBUG: Dense scores calculated.", flush=True)
+
+
+
 
         # ── 4b. BM25 scores
         bm25_raw = np.zeros(len(listings), dtype=np.float32)
@@ -451,7 +461,7 @@ def semantic_search(
         hybrid_scores = (dense_weight * dense_scores) + ((1 - dense_weight) * bm25_raw) + ngram_boosts
 
         # ── 6. Filter & Rank candidates
-        candidate_count = min(20, len(listings))
+        candidate_count = min(100, len(listings))
         top_indices = np.argsort(hybrid_scores)[::-1][:candidate_count]
 
         candidates = []

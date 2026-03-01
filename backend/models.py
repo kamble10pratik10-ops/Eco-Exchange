@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Boolean, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
+from datetime import datetime
 
 from .database import Base
 
@@ -22,8 +23,16 @@ class User(Base):
     phone = Column(String, nullable=True)
     profile_image_url = Column(String, nullable=True)
     is_verified = Column(Boolean, default=False)
+    
+    # Trust Metrics
+    trust_score = Column(Float, default=5.0)
+    successful_trades_count = Column(Integer, default=0)
+    community_vouches_count = Column(Integer, default=0)
+    has_active_disputes = Column(Boolean, default=False)
 
     listings = relationship("Listing", back_populates="owner")
+    received_reviews = relationship("Review", back_populates="reviewee", foreign_keys="Review.reviewee_id")
+    received_vouches = relationship("CommunityVouch", back_populates="voutee", foreign_keys="CommunityVouch.voutee_id")
     wishlist_items = relationship("WishlistItem", back_populates="user", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="user", cascade="all, delete-orphan")
 
@@ -57,6 +66,10 @@ class Listing(Base):
     category = Column(String, index=True)
     city = Column(String, index=True)
     is_active = Column(Boolean, default=True)
+    
+    # Exchange System
+    accept_exchange = Column(Boolean, default=True)
+    exchange_preferences = Column(Text, nullable=True) # Description of what they want in return
 
     owner_id = Column(Integer, ForeignKey("users.id"))
     owner = relationship("User", back_populates="listings")
@@ -112,4 +125,48 @@ class OrderItem(Base):
 
     order = relationship("Order", back_populates="items")
     listing = relationship("Listing", back_populates="ordered_items")
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"))
+    reviewer_id = Column(Integer, ForeignKey("users.id"))
+    reviewee_id = Column(Integer, ForeignKey("users.id"))
+    rating = Column(Integer, nullable=False)  # 1-10
+    comment = Column(Text, nullable=True)
+    media_url = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    order = relationship("Order")
+    reviewer = relationship("User", foreign_keys=[reviewer_id])
+    reviewee = relationship("User", foreign_keys=[reviewee_id], back_populates="received_reviews")
+
+
+class CommunityVouch(Base):
+    __tablename__ = "community_vouches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vouter_id = Column(Integer, ForeignKey("users.id"))
+    voutee_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    vouter = relationship("User", foreign_keys=[vouter_id])
+    voutee = relationship("User", foreign_keys=[voutee_id], back_populates="received_vouches")
+
+
+class Dispute(Base):
+    __tablename__ = "disputes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"))
+    complainant_id = Column(Integer, ForeignKey("users.id"))
+    accused_id = Column(Integer, ForeignKey("users.id"))
+    status = Column(String, default="open")  # open, resolved, dismissed
+    reason = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    order = relationship("Order")
+
 

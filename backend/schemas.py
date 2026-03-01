@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Any
 
 
 class UserBase(BaseModel):
@@ -33,6 +33,14 @@ class User(UserBase):
     is_verified: bool
     followers_count: int = 0
     following_count: int = 0
+    
+    # Trust System Fields
+    trust_score: float = 5.0
+    successful_trades_count: int = 0
+    community_vouches_count: int = 0
+    has_active_disputes: bool = False
+    listings: List["Listing"] = []
+    received_reviews: List["Review"] = []
 
     class Config:
         from_attributes = True
@@ -69,6 +77,8 @@ class ListingBase(BaseModel):
     price: float
     category: Optional[str] = None
     city: Optional[str] = None
+    accept_exchange: bool = True
+    exchange_preferences: Optional[str] = None
 
 
 class ListingCreate(ListingBase):
@@ -81,6 +91,8 @@ class Listing(ListingBase):
     owner_id: int
     owner: Optional[UserPublic] = None
     images: List[ProductImage] = []
+    accept_exchange: bool = True
+    exchange_preferences: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -156,3 +168,59 @@ class DashboardStats(BaseModel):
     unread_messages_count: int
     total_listings_value: float
     recent_activity: List[dict] = []
+
+
+# ── Trust & Community Schemas ──────────────────────────────────────────────
+
+class ReviewCreate(BaseModel):
+    order_id: int
+    rating: int  # 1-10
+    comment: Optional[str] = None
+    media_url: Optional[str] = None
+
+class Review(BaseModel):
+    id: int
+    order_id: int
+    reviewer_id: int
+    reviewee_id: int
+    rating: int
+    comment: Optional[str] = None
+    media_url: Optional[str] = None
+    created_at: Any
+    order: Optional["Order"] = None
+
+    class Config:
+        from_attributes = True
+
+class CommunityVouch(BaseModel):
+    id: int
+    vouter_id: int
+    voutee_id: int
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+class Dispute(BaseModel):
+    id: int
+    order_id: int
+    complainant_id: int
+    accused_id: int
+    status: str
+    reason: str
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+# ── Exchange Recommender Schemas ───────────────────────────────────────────
+
+class ExchangeMatch(BaseModel):
+    your_listing: Listing
+    matches: List[SearchResult]
+
+class ChainMatch(BaseModel):
+    your_listing: Listing
+    chain: List[Listing]  # Me(A) -> X(B) -> Y(C) -- where C matches A's wants
+

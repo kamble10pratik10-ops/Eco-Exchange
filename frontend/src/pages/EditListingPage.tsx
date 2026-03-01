@@ -6,7 +6,9 @@ import {
     X,
     ArrowRight,
     Check,
-    ArrowLeft
+    ArrowLeft,
+    Package,
+    Info
 } from 'lucide-react'
 import './NewListingPage.css'
 
@@ -23,6 +25,8 @@ export default function EditListingPage({ token }: { token: string | null }) {
         price: '',
         category: '',
         city: '',
+        accept_exchange: true,
+        exchange_preferences: '',
     })
     const [existingImages, setExistingImages] = useState<{ id: number, url: string }[]>([])
     const [newImages, setNewImages] = useState<File[]>([])
@@ -55,6 +59,8 @@ export default function EditListingPage({ token }: { token: string | null }) {
                     price: data.price.toString(),
                     category: data.category || '',
                     city: data.city || '',
+                    accept_exchange: data.accept_exchange ?? true,
+                    exchange_preferences: data.exchange_preferences || '',
                 })
                 setExistingImages(data.images || [])
                 setLoading(false)
@@ -119,7 +125,9 @@ export default function EditListingPage({ token }: { token: string | null }) {
             const payload = {
                 ...formData,
                 price: parseFloat(formData.price),
-                image_urls: finalImageUrls
+                image_urls: finalImageUrls,
+                accept_exchange: formData.accept_exchange,
+                exchange_preferences: formData.exchange_preferences
             }
 
             const res = await fetch(`${API_URL}/listings/${id}`, {
@@ -260,6 +268,45 @@ export default function EditListingPage({ token }: { token: string | null }) {
                                         value={formData.price}
                                         onChange={e => setFormData({ ...formData, price: e.target.value })}
                                     />
+                                </div>
+
+                                <div className="exchange-concept-elite glass" style={{ marginTop: '24px', padding: '20px', borderRadius: '16px', border: '1px solid var(--accent-emerald)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <Package size={20} className="emerald-glow" />
+                                            <h4 style={{ margin: 0 }}>Open to Exchange?</h4>
+                                        </div>
+                                        <label className="switch">
+                                            <input
+                                                type="checkbox"
+                                                checked={formData.accept_exchange}
+                                                onChange={e => setFormData({ ...formData, accept_exchange: e.target.checked })}
+                                            />
+                                            <span className="slider round"></span>
+                                        </label>
+                                    </div>
+
+                                    {formData.accept_exchange && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            className="input-group-elite"
+                                            style={{ marginBottom: 0 }}
+                                        >
+                                            <label>What are you looking for in return?</label>
+                                            <textarea
+                                                className="input-premium"
+                                                rows={3}
+                                                placeholder="e.g. Looking for a mechanical keyboard..."
+                                                value={formData.exchange_preferences}
+                                                onChange={e => setFormData({ ...formData, exchange_preferences: e.target.value })}
+                                            />
+                                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                                                <Info size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                                                This helps our AI find perfect ecosystem matches.
+                                            </p>
+                                        </motion.div>
+                                    )}
                                 </div>
                             </div>
 

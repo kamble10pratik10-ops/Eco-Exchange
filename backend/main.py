@@ -1,3 +1,8 @@
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from starlette.concurrency import run_in_threadpool
 import cloudinary
@@ -8,8 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 import uvicorn
-import os
 from dotenv import load_dotenv
+import math
+from datetime import datetime
 
 load_dotenv()
 
@@ -19,6 +25,8 @@ from .database import engine, Base, get_db
 from . import chat_models  # import so tables get created
 from .chat_routes import router as chat_router
 from .search_engine import semantic_search, invalidate_listing, preload_models
+
+
 import threading
 import smtplib
 import ssl
@@ -284,13 +292,60 @@ def get_user_profile(
     user_id: int,
     db: Session = Depends(get_db)
 ):
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    user = db.query(models.User).options(
+        joinedload(models.User.listings),
+        joinedload(models.User.received_reviews).joinedload(models.Review.order).joinedload(models.Order.items).joinedload(models.OrderItem.listing)
+    ).filter(models.User.id == user_id).first()
+    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Populate counts
+    # ── Bayesian Trust Score Calculation (Conf-Interval & Time Decay) ─────────────────
+    reviews = db.query(models.Review).filter(models.Review.reviewee_id == user_id).all()
+    vouchers = db.query(models.CommunityVouch).filter(models.CommunityVouch.voutee_id == user_id).all()
+    disputes = db.query(models.Dispute).filter(models.Dispute.accused_id == user_id, models.Dispute.status == "open").all()
+    
+    now = datetime.utcnow()
+    # Apply Time Decay to Ratings: Recent reviews count for 100%, 1-year-old reviews count for 20%
+    weighted_sum = 0.0
+    weighted_count = 0.0
+    
+    for r in reviews:
+        # Calculate age in days
+        age_delta = (now - r.created_at).days
+        # Decay factor: e^(-0.005 * days) -- roughly 0.2 at 320 days
+        decay = math.exp(-0.002 * age_delta) 
+        weighted_sum += r.rating * decay
+        weighted_count += decay
+
+    C = 5.0  # Confidence constant (uncertainty "punishment")
+    m = 6.0  # Prior mean (out of 10)
+    
+    if weighted_count > 0:
+        bayesian_rating = (weighted_sum + C * m) / (weighted_count + C)
+    else:
+        bayesian_rating = m
+
+    # Bonus points for successful trades and community vouches
+    trade_bonus = (user.successful_trades_count * 0.2) # Hard credit
+    vouch_bonus = (len(vouchers) * 0.05)              # Soft credit
+    
+    final_score = bayesian_rating + trade_bonus + vouch_bonus
+    
+    # Dispute "Locking": 50% penalty and status flag
+    if len(disputes) > 0:
+        final_score = final_score * 0.5 
+        user.has_active_disputes = True
+    else:
+        user.has_active_disputes = False
+        
+    final_score = max(1.0, min(10.0, final_score))
+    
+    user.trust_score = float(f"{final_score:.1f}")
+    user.community_vouches_count = len(vouchers)
     user.followers_count = len(user.followers)
     user.following_count = len(user.following)
+    
     return user
 
 
@@ -547,7 +602,7 @@ async def upload_listing_images_bulk(
 @app.get("/listings", response_model=list[schemas.Listing])
 def list_listings(
     skip: int = 0,
-    limit: int = 20,
+    limit: int = 1000,
     category: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
@@ -689,56 +744,7 @@ def delete_listing(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Semantic Search Endpoint
-# ──────────────────────────────────────────────────────────────────────
 
-@app.get("/search")
-def search_listings(
-    q: str,
-    top_k: int = 20,
-    min_score: float = 0.35,
-    db: Session = Depends(get_db),
-):
-    """Simple debug search endpoint."""
-    print(f"\n--> API REQUEST: /search?q={q}", flush=True)
-    
-    if not q.strip():
-        return {"results": [], "total": 0}
-
-    print(f"--> [DEBUG] Calling search_engine.semantic_search...", flush=True)
-    try:
-        # 1. Call search engine
-        raw = semantic_search(query=q.strip(), db=db, top_k=top_k)
-        
-        # 2. Precise Validation using Schemas
-        results = []
-        for r in raw:
-            try:
-                # Convert SQLAlchemy model to Pydantic
-                listing_schema = schemas.Listing.model_validate(r["listing"])
-                results.append(
-                    schemas.SearchResult(
-                        listing=listing_schema,
-                        score=r["score"],
-                        match_type=r.get("match_type", "semantic")
-                    )
-                )
-            except Exception as val_err:
-                print(f"--> [DEBUG] Skipping one result due to validation error: {val_err}", flush=True)
-                continue
-            
-        print(f"--> SUCCESS: Validated {len(results)} results for frontend.", flush=True)
-        return schemas.SearchResponse(
-            query=q.strip(),
-            total=len(results),
-            results=results
-        )
-        
-    except Exception as e:
-        import traceback
-        print(f"!!! CRITICAL API ERROR in search_listings:\n{traceback.format_exc()}", flush=True)
-        return JSONResponse(status_code=500, content={"error": "Search failed", "detail": str(e)})
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -841,6 +847,378 @@ def get_orders(
     current_user: models.User = Depends(get_current_user),
 ):
     return db.query(models.Order).filter(models.Order.user_id == current_user.id).all()
+
+
+@app.post("/orders/{order_id}/complete")
+def complete_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    if order.status == "completed":
+        return {"status": "already completed"}
+
+    order.status = "completed"
+    
+    # Increment successful trades for the owner of each item
+    for item in order.items:
+        owner = item.listing.owner
+        if owner:
+            owner.successful_trades_count += 1
+    
+    db.commit()
+    return {"status": "completed"}
+
+
+@app.post("/reviews", response_model=schemas.Review)
+def create_review(
+    payload: schemas.ReviewCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1. Verified Transaction Anchor
+    order = db.query(models.Order).filter(models.Order.id == payload.order_id).first()
+    if not order or order.status != "completed":
+        raise HTTPException(status_code=400, detail="Reviews can only be left for completed orders")
+    
+    # 2. Check eligibility (Must be the buyer)
+    if order.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the buyer can review this order")
+    
+    # Assume for simplicity the review is for the seller of the first item in the order
+    if not order.items:
+         raise HTTPException(status_code=400, detail="Order has no items")
+         
+    target_seller_id = order.items[0].listing.owner_id
+    
+    # Prevent duplicate reviews
+    existing = db.query(models.Review).filter(
+        models.Review.order_id == payload.order_id,
+        models.Review.reviewer_id == current_user.id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Review already exists for this order")
+    
+    # 3. Dispute "Locking" logic
+    # If rating < 4, auto-open a Dispute
+    if payload.rating < 4:
+        dispute = models.Dispute(
+            order_id=payload.order_id,
+            complainant_id=current_user.id,
+            accused_id=target_seller_id,
+            status="open",
+            reason=f"Low Rating Auto-Dispute: {payload.comment}"
+        )
+        db.add(dispute)
+    
+    review = models.Review(
+        order_id=payload.order_id,
+        reviewer_id=current_user.id,
+        reviewee_id=target_seller_id,
+        rating=payload.rating,
+        comment=payload.comment,
+        media_url=payload.media_url,
+        created_at=datetime.utcnow()
+    )
+    
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+    return review
+
+
+@app.post("/users/{user_id}/vouch")
+def vouch_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot vouch for yourself")
+    
+    # Check if already vouched
+    existing = db.query(models.CommunityVouch).filter(
+        models.CommunityVouch.vouter_id == current_user.id,
+        models.CommunityVouch.voutee_id == user_id
+    ).first()
+    
+    if existing:
+        return {"status": "ok", "message": "Already vouched"}
+    
+    vouch = models.CommunityVouch(
+        vouter_id=current_user.id,
+        voutee_id=user_id,
+        created_at=datetime.utcnow()
+    )
+    db.add(vouch)
+    db.commit()
+    return {"status": "ok", "message": "Vouch registered"}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Semantic Search Endpoint
+# ──────────────────────────────────────────────────────────────────────
+
+@app.get("/search", response_model=schemas.SearchResponse)
+def search_listings(
+    q: str,
+    top_k: int = 100,
+    min_score: float = 0.35,
+    db: Session = Depends(get_db),
+):
+    from .search_engine import semantic_search
+    results_raw = semantic_search(query=q, db=db, top_k=top_k, min_score=min_score)
+    
+    # Map to schema
+    formatted_results = []
+    for r in results_raw:
+        try:
+            # We need to validate the listing model into a schema
+            lst_schema = schemas.Listing.model_validate(r["listing"])
+            formatted_results.append(schemas.SearchResult(
+                listing=lst_schema,
+                score=r["score"],
+                dense=r.get("dense"),
+                bm25=r.get("bm25"),
+                prefix=r.get("prefix"),
+                match_type=r.get("match_type")
+            ))
+        except Exception as e:
+            print(f"Validation error for search result: {e}")
+            continue
+
+    return schemas.SearchResponse(
+        query=q,
+        total=len(formatted_results),
+        results=formatted_results
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Exchange Recommender Endpoints
+# ──────────────────────────────────────────────────────────────────────
+
+@app.get("/users/me/exchange-matches", response_model=List[schemas.ExchangeMatch])
+def get_exchange_matches(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Find exchange matches for the current user's exchangeable listings."""
+    my_listings = db.query(models.Listing).options(joinedload(models.Listing.owner)).filter(
+        models.Listing.owner_id == current_user.id,
+        models.Listing.is_active == True,
+        models.Listing.accept_exchange == True
+    ).all()
+
+    results = []
+    from .search_engine import semantic_search
+    
+    for ml in my_listings:
+        if not ml.exchange_preferences:
+            continue
+            
+        # Search all active listings using the exchange_preferences as the query
+        candidates_raw = semantic_search(query=ml.exchange_preferences, db=db, top_k=50, min_score=0.25)
+        
+        valid_matches = []
+        for c in candidates_raw:
+            cand_listing = c["listing"]
+            # Exclude own listings and those not accepting exchanges
+            if cand_listing.owner_id != current_user.id and cand_listing.accept_exchange:
+                try:
+                    lst_schema = schemas.Listing.model_validate(cand_listing)
+                    valid_matches.append(schemas.SearchResult(
+                        listing=lst_schema,
+                        score=c["score"],
+                        match_type=c.get("match_type", "semantic")
+                    ))
+                except Exception as e:
+                    print(f"Match validation error: {e}")
+        
+        if valid_matches:
+            results.append(schemas.ExchangeMatch(
+                your_listing=schemas.Listing.model_validate(ml),
+                matches=valid_matches
+            ))
+            
+    return results
+
+
+@app.get("/users/me/exchange-chains", response_model=List[schemas.ChainMatch])
+def get_exchange_chains(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Finds 3-hop exchange circuits where:
+    Me (Listing A) -> User X (Listing B) -> User Y (Listing C)
+    Where Listing C matches what Me (Listing A) wants.
+    """
+    my_listings = db.query(models.Listing).options(joinedload(models.Listing.owner)).filter(
+        models.Listing.owner_id == current_user.id,
+        models.Listing.is_active == True,
+        models.Listing.accept_exchange == True
+    ).all()
+
+    if not my_listings:
+        return []
+
+    # Get all active exchangeable listings NOT belonging to current user
+    all_other_listings = db.query(models.Listing).options(joinedload(models.Listing.owner)).filter(
+        models.Listing.owner_id != current_user.id,
+        models.Listing.is_active == True,
+        models.Listing.accept_exchange == True
+    ).all()
+
+    from .search_engine import _cached_query_embedding, _field_weighted_dense
+    
+    def matches_wants(wants: str, target_listing: models.Listing, threshold: float = 0.35) -> bool:
+        if not wants: return False
+        wants_clean = wants.strip().lower()
+        try:
+            # Semantic check
+            query_emb = _cached_query_embedding(wants_clean)
+            score = _field_weighted_dense(query_emb, target_listing)
+            if score >= threshold:
+                return True
+            
+            # Keyword fallback (if semantic returns 0 due to disabled models)
+            tokens = set(wants_clean.split())
+            text = (target_listing.title + " " + (target_listing.description or "")).lower()
+            if any(t in text for t in tokens if len(t) > 3):
+                return True
+            return False
+        except:
+            return False
+
+    chains = []
+    # Exhaustive search for circuits
+    for my_item in my_listings:
+        if not my_item.exchange_preferences: continue
+        
+        for item_x in all_other_listings:
+            # Check if Item X is something I want
+            if matches_wants(my_item.exchange_preferences, item_x):
+                # Found a direct match - skip if we only want chains, but let's include it
+                pass
+            
+            # Chain: My Item -> User X -> Item Y -> User Y -> My Item (item_y)
+            if item_x.exchange_preferences:
+                for item_y in all_other_listings:
+                    if item_y.owner_id == item_x.owner_id: continue # same owner
+                    
+                    # Does User X want my item?
+                    if matches_wants(item_x.exchange_preferences, my_item):
+                        # Does User Y match User X's preference?
+                        if item_y.exchange_preferences and matches_wants(item_x.exchange_preferences, item_y):
+                            # Does User Y's item match MY preference?
+                            if matches_wants(my_item.exchange_preferences, item_y):
+                                chains.append(schemas.ChainMatch(
+                                    your_listing=schemas.Listing.model_validate(my_item),
+                                    chain=[
+                                        schemas.Listing.model_validate(item_x),
+                                        schemas.Listing.model_validate(item_y)
+                                    ]
+                                ))
+                                if len(chains) >= 5: return chains # Cap results
+                                
+    return chains
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Trust & Review Endpoints
+# ──────────────────────────────────────────────────────────────────────
+
+@app.post("/users/{user_id}/vouch")
+def vouch_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if current_user.id == user_id:
+        raise HTTPException(status_code=400, detail="Cant vouch for self")
+        
+    existing = db.query(models.CommunityVouch).filter(
+        models.CommunityVouch.vouter_id == current_user.id,
+        models.CommunityVouch.voutee_id == user_id
+    ).first()
+    
+    if existing:
+        return {"status": "already_vouched"}
+        
+    vouch = models.CommunityVouch(vouter_id=current_user.id, voutee_id=user_id)
+    db.add(vouch)
+    db.commit()
+    return {"status": "success"}
+
+
+@app.get("/users/{user_id}/reviews", response_model=List[schemas.Review])
+def get_user_reviews(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    reviews = db.query(models.Review).filter(models.Review.reviewee_id == user_id).order_by(models.Review.created_at.desc()).all()
+    # Manual date formatting since schema expects string
+    for r in reviews:
+        r.created_at = r.created_at.isoformat()
+    return reviews
+
+
+@app.post("/users/{user_id}/reviews", response_model=schemas.Review)
+def leave_review(
+    user_id: int,
+    review_data: schemas.ReviewCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Verify order exists and user participated
+    order = db.query(models.Order).filter(models.Order.id == review_data.order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+        
+    # Check if user was buyer or seller in any item of this order
+    # For now, simplistic check: is it their order? (buyer check)
+    if order.user_id != current_user.id:
+        # Check if they own any listing in this order (seller check)
+        participated = False
+        for item in order.items:
+            if item.listing.owner_id == current_user.id:
+                participated = True
+                break
+        if not participated:
+            raise HTTPException(status_code=403, detail="Not authorized to review this transaction")
+
+    review = models.Review(
+        order_id=review_data.order_id,
+        reviewer_id=current_user.id,
+        reviewee_id=user_id,
+        rating=review_data.rating,
+        comment=review_data.comment,
+        media_url=review_data.media_url
+    )
+    
+    # Auto-trigger dispute for 1-star reviews
+    if review_data.rating == 1:
+        dispute = models.Dispute(
+            order_id=review_data.order_id,
+            complainant_id=current_user.id,
+            accused_id=user_id,
+            reason=f"Auto-triggered by 1-star review: {review_data.comment}"
+        )
+        db.add(dispute)
+    
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+    review.created_at = review.created_at.isoformat()
+    return review
+
 
 
 if __name__ == "__main__":

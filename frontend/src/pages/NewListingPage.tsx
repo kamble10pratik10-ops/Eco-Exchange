@@ -25,6 +25,8 @@ export default function NewListingPage({ token }: { token: string | null }) {
         price: '',
         category: '',
         city: '',
+        accept_exchange: true,
+        exchange_preferences: '',
     })
     const [images, setImages] = useState<File[]>([])
     const [previews, setPreviews] = useState<string[]>([])
@@ -221,6 +223,45 @@ export default function NewListingPage({ token }: { token: string | null }) {
                                         value={formData.price}
                                         onChange={e => setFormData({ ...formData, price: e.target.value })}
                                     />
+                                </div>
+
+                                <div className="exchange-concept-elite glass" style={{ marginTop: '24px', padding: '20px', borderRadius: '16px', border: '1px solid var(--accent-emerald)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <Package size={20} className="emerald-glow" />
+                                            <h4 style={{ margin: 0 }}>Open to Exchange?</h4>
+                                        </div>
+                                        <label className="switch">
+                                            <input
+                                                type="checkbox"
+                                                checked={formData.accept_exchange}
+                                                onChange={e => setFormData({ ...formData, accept_exchange: e.target.checked })}
+                                            />
+                                            <span className="slider round"></span>
+                                        </label>
+                                    </div>
+
+                                    {formData.accept_exchange && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            className="input-group-elite"
+                                            style={{ marginBottom: 0 }}
+                                        >
+                                            <label>What are you looking for in return?</label>
+                                            <textarea
+                                                className="input-premium"
+                                                rows={3}
+                                                placeholder="e.g. Looking for a mechanical keyboard or some vintage vinyl records..."
+                                                value={formData.exchange_preferences}
+                                                onChange={e => setFormData({ ...formData, exchange_preferences: e.target.value })}
+                                            />
+                                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                                                <Info size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                                                Our AI uses this to find perfect matches in the ecosystem.
+                                            </p>
+                                        </motion.div>
+                                    )}
                                 </div>
                             </div>
 

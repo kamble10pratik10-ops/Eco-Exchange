@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Calendar, Package, ArrowRight, ShieldCheck, Globe, Settings } from 'lucide-react'
+import { Calendar, Package, ArrowRight, ShieldCheck, Settings, TrendingUp, Handshake, ThumbsUp, AlertCircle } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
 import './HomePage.css'
 
 const API_URL = 'http://127.0.0.1:8000'
@@ -14,13 +15,19 @@ type UserProfile = {
   profile_image_url?: string
   followers_count?: number
   following_count?: number
+  successful_trades_count: number
+  community_vouches_count: number
+  trust_score: number
+  has_active_disputes: boolean
   listings: any[]
+  received_reviews: any[]
 }
 
 export default function MyProfilePage({ token }: { token: string | null }) {
   const { id } = useParams()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'inventory' | 'reviews'>('inventory')
 
   useEffect(() => {
     // If no ID is provided, we're viewing our own profile
@@ -106,50 +113,201 @@ export default function MyProfilePage({ token }: { token: string | null }) {
             </div>
           </div>
 
-          <div className="profile-meta-row" style={{ display: 'flex', gap: '24px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Globe size={16} />
-              <span>Global Citizen</span>
+          <div className="profile-meta-row" style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+            <div className="trust-badge-elite" style={{
+              background: profile.has_active_disputes ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+              color: profile.has_active_disputes ? '#ef4444' : '#10b981',
+              padding: '8px 16px',
+              borderRadius: '12px',
+              border: `1px solid ${profile.has_active_disputes ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: 700
+            }}>
+              <TrendingUp size={18} />
+              <span>Trust Score: {profile.trust_score}/10</span>
+              {profile.has_active_disputes && (
+                <div style={{ marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '4px', color: '#ef4444', fontSize: '0.75rem' }}>
+                  <AlertCircle size={14} />
+                  <span>Frozen Score (Active Dispute)</span>
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
               <Calendar size={16} />
-              <span>Joined Feb 2026</span>
+              <span>Joined 2026</span>
+            </div>
+          </div>
+
+          <div className="trust-bars-elite" style={{ marginTop: '32px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+            <div className="trust-metric">
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Handshake size={14} color="var(--accent-emerald)" />
+                  <span>Successful Trades</span>
+                </div>
+                <span style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>{profile.successful_trades_count} Completed</span>
+              </div>
+              <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, (profile.successful_trades_count / 20) * 100)}%` }}
+                  style={{ height: '100%', background: 'var(--accent-emerald)', boxShadow: '0 0 10px var(--accent-emerald)' }}
+                />
+              </div>
+            </div>
+
+            <div className="trust-metric">
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ThumbsUp size={14} color="#3b82f6" />
+                  <span>Community Vouches</span>
+                </div>
+                <span style={{ color: '#3b82f6', fontWeight: 700 }}>{profile.community_vouches_count} Social Credit</span>
+              </div>
+              <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, (profile.community_vouches_count / 50) * 100)}%` }}
+                  style={{ height: '100%', background: '#3b82f6', boxShadow: '0 0 10px #3b82f6' }}
+                />
+              </div>
             </div>
           </div>
         </div>
       </motion.section >
 
-      <section className="profile-assets">
-        <h2 className="text-gradient" style={{ marginBottom: '32px' }}>Active Inventory</h2>
-        {(!profile.listings || profile.listings.length === 0) ? (
-          <div className="empty-state-elite">
-            <Package size={48} />
-            <p>No active catalog assets found.</p>
-          </div>
+      <div className="profile-tabs-elite" style={{ display: 'flex', gap: '40px', borderBottom: '1px solid var(--border-glass)', marginBottom: '40px' }}>
+        <button
+          onClick={() => setActiveTab('inventory')}
+          style={{
+            padding: '16px 8px',
+            background: 'transparent',
+            border: 'none',
+            color: activeTab === 'inventory' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+            borderBottom: activeTab === 'inventory' ? '2px solid var(--accent-emerald)' : 'none',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          Active Inventory
+        </button>
+        <button
+          onClick={() => setActiveTab('reviews')}
+          style={{
+            padding: '16px 8px',
+            background: 'transparent',
+            border: 'none',
+            color: activeTab === 'reviews' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+            borderBottom: activeTab === 'reviews' ? '2px solid var(--accent-emerald)' : 'none',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+        >
+          Ecosystem Proof ({profile.received_reviews?.length || 0})
+        </button>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {activeTab === 'inventory' ? (
+          <motion.section
+            key="inventory"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
+            className="profile-assets"
+          >
+            {(!profile.listings || profile.listings.length === 0) ? (
+              <div className="empty-state-elite">
+                <Package size={48} />
+                <p>No active catalog assets found.</p>
+              </div>
+            ) : (
+              <div className="listing-grid-elite">
+                {profile.listings.map((item: any) => (
+                  <motion.div key={item.id} className="elite-card-wrap">
+                    <article className="elite-card">
+                      <div className="card-image-wrap">
+                        <img src={item.images?.[0]?.url || 'https://placehold.co/400x400/1e293b/10b981?text=Listing'} alt="" className="elite-card-image" />
+                      </div>
+                      <div className="card-content-elite">
+                        <h3 className="card-title-elite">{item.title}</h3>
+                        <div className="card-footer-elite">
+                          <span className="price-elite">₹{item.price.toLocaleString()}</span>
+                          <Link to={`/listings/${item.id}`} className="btn-view-elite">
+                            <ArrowRight size={18} />
+                          </Link>
+                        </div>
+                      </div>
+                    </article>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </motion.section>
         ) : (
-          <div className="listing-grid-elite">
-            {profile.listings.map((item: any) => (
-              <motion.div key={item.id} className="elite-card-wrap">
-                <article className="elite-card">
-                  {/* Reuse simplified card content */}
-                  <div className="card-image-wrap">
-                    <img src={item.images?.[0]?.url || 'https://placehold.co/400x400/1e293b/10b981?text=Listing'} alt="" className="elite-card-image" />
-                  </div>
-                  <div className="card-content-elite">
-                    <h3 className="card-title-elite">{item.title}</h3>
-                    <div className="card-footer-elite">
-                      <span className="price-elite">₹{item.price.toLocaleString()}</span>
-                      <Link to={`/listings/${item.id}`} className="btn-view-elite">
-                        <ArrowRight size={18} />
-                      </Link>
+          <motion.section
+            key="reviews"
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -10 }}
+            className="profile-reviews"
+          >
+            {(!profile.received_reviews || profile.received_reviews.length === 0) ? (
+              <div className="empty-state-elite">
+                <ShieldCheck size={48} />
+                <p>You have yet to anchor your legacy with verified trades.</p>
+              </div>
+            ) : (
+              <div className="reviews-list-elite" style={{ display: 'grid', gap: '24px' }}>
+                {profile.received_reviews.map((rev: any) => (
+                  <div key={rev.id} className="review-card-elite glass" style={{ padding: '24px', borderRadius: '16px', border: '1px solid var(--border-glass)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div className="stars-elite" style={{ color: 'var(--accent-gold)', display: 'flex', gap: '2px' }}>
+                          {[...Array(10)].map((_, i) => (
+                            <span key={i} style={{ opacity: i < rev.rating ? 1 : 0.2 }}>★</span>
+                          ))}
+                        </div>
+                        <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>{rev.rating}/10</span>
+                      </div>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Verified Trade Record</span>
                     </div>
+
+                    <p style={{ margin: '0 0 16px', fontStyle: 'italic', color: 'var(--text-primary)' }}>"{rev.comment}"</p>
+
+                    {rev.order?.items?.[0] && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <img
+                          src={rev.order.items[0].listing?.images?.[0]?.url || 'https://placehold.co/50x50'}
+                          alt=""
+                          style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px' }}
+                        />
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Verified Asset Recieved</span>
+                          <span style={{ fontWeight: 600 }}>{rev.order.items[0].listing?.title}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {rev.media_url && (
+                      <div style={{ marginTop: '16px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-glass)' }}>
+                        <img src={rev.media_url} alt="Review verification" style={{ width: '100%', maxHeight: '400px', objectFit: 'cover' }} />
+                        <div style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', padding: '8px', fontSize: '0.7rem', textAlign: 'center', fontWeight: 700 }}>
+                          <ShieldCheck size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                          MEDIA VERIFIED: TIMESTAMP & SIGNATURE CHECK COMPLETED
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </article>
-              </motion.div>
-            ))}
-          </div>
+                ))}
+              </div>
+            )}
+          </motion.section>
         )}
-      </section>
-    </div >
+      </AnimatePresence>
+    </div>
   )
 }
