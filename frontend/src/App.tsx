@@ -31,6 +31,7 @@ import {
   VerifyEmailPage,
   PublicProfilePage,
   DashboardPage,
+  AboutUsPage,
 } from './pages'
 
 function useAuth(): [{ token: string | null }, (token: string | null) => void] {
@@ -106,12 +107,21 @@ function Layout({
   useEffect(() => {
     const fetchProfile = () => {
       if (authed && token) {
-        fetch('http://127.0.0.1:8000/auth/me', {
+        fetch('/api/auth/me', {
           headers: { Authorization: `Bearer ${token}` }
         })
-          .then(r => r.json())
+          .then(r => {
+            if (r.status === 401) {
+              console.warn("Session expired, logging out...");
+              onLogout();
+              throw new Error("401");
+            }
+            return r.json();
+          })
           .then(data => setUserProfile(data))
-          .catch(err => console.error("Profile sync error", err))
+          .catch(err => {
+            if (err.message !== "401") console.error("Profile sync error", err);
+          })
       }
     }
 
@@ -139,13 +149,13 @@ function Layout({
             <span className="logo-text">Eco-Exchange</span>
           </Link>
 
-          <HeaderSearchBar />
+          {authed && <HeaderSearchBar />}
 
           <nav className="nav-main">
             {authed && (
               <>
-                <NavLink to="/" end className="nav-link">
-                  <span>Home</span>
+                <NavLink to="/explore" className="nav-link">
+                  <span>Explore</span>
                 </NavLink>
                 <NavLink to="/listings/new" className="nav-link">
                   <PlusCircle size={18} />
@@ -210,6 +220,7 @@ function Layout({
             )}
             {!authed && (
               <div className="auth-nav">
+                <NavLink to="/about" className="nav-link">About</NavLink>
                 <NavLink to="/login" className="nav-link login">Login</NavLink>
                 <Link to="/register" className="btn-premium">Join Now</Link>
               </div>
@@ -253,7 +264,13 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
 
-        <Route path="/" element={<HomePage token={auth.token} />} />
+        <Route path="/" element={auth.token ? <Navigate to="/explore" replace /> : <AboutUsPage />} />
+        <Route path="/about" element={auth.token ? <Navigate to="/explore" replace /> : <AboutUsPage />} />
+        <Route path="/explore" element={
+          <ProtectedRoute token={auth.token}>
+            <HomePage token={auth.token} />
+          </ProtectedRoute>
+        } />
         <Route
           path="/listings/new"
           element={
@@ -267,7 +284,11 @@ function App() {
             <EditListingPage token={auth.token} />
           </ProtectedRoute>
         } />
-        <Route path="/listings/:id" element={<ListingDetailPage token={auth.token} />} />
+        <Route path="/listings/:id" element={
+          <ProtectedRoute token={auth.token}>
+            <ListingDetailPage token={auth.token} />
+          </ProtectedRoute>
+        } />
         <Route path="/messages" element={
           <ProtectedRoute token={auth.token}>
             <ChatListPage token={auth.token} />
@@ -278,7 +299,11 @@ function App() {
             <ChatPage token={auth.token} />
           </ProtectedRoute>
         } />
-        <Route path="/search" element={<SearchPage token={auth.token} />} />
+        <Route path="/search" element={
+          <ProtectedRoute token={auth.token}>
+            <SearchPage token={auth.token} />
+          </ProtectedRoute>
+        } />
         <Route path="/profile" element={
           <ProtectedRoute token={auth.token}>
             <ProfilePage token={auth.token} />

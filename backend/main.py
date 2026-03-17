@@ -20,7 +20,7 @@ from datetime import datetime
 load_dotenv()
 
 from . import models, schemas
-from .auth import authenticate_user, create_access_token, get_password_hash, get_current_user
+from .auth import authenticate_user, create_access_token, get_password_hash, get_current_user, get_current_user_optional
 from .database import engine, Base, get_db
 from . import chat_models  # import so tables get created
 from .chat_routes import router as chat_router
@@ -42,12 +42,7 @@ app = FastAPI(title="Exo Exchange API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173", 
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -652,6 +647,49 @@ def list_listings(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/listings/price-estimate", response_model=schemas.PriceEstimateResponse)
+def get_price_estimate(
+    title: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Finds currently active listings semantically similar to the provided title
+    and returns price statistics (min, max, average).
+    """
+    if not title or len(title.strip()) < 3:
+        return {
+            "average_price": 0.0,
+            "min_price": 0.0,
+            "max_price": 0.0,
+            "count": 0,
+            "similar_listings": []
+        }
+
+    # Use a high threshold (0.65+) to ensure we are actually looking at similar products
+    # logic: if user types "iPhone 15", we want to match "iPhone 15 Pro", "iPhone 15 128GB"
+    results = semantic_search(query=title, db=db, top_k=10, min_score=0.65)
+    
+    if not results:
+        return {
+            "average_price": 0.0,
+            "min_price": 0.0,
+            "max_price": 0.0,
+            "count": 0,
+            "similar_listings": []
+        }
+
+    prices = [r["listing"].price for r in results]
+    listings = [r["listing"] for r in results]
+
+    return {
+        "average_price": round(sum(prices) / len(prices), 2),
+        "min_price": min(prices),
+        "max_price": max(prices),
+        "count": len(prices),
+        "similar_listings": listings
+    }
+
+
 @app.get("/listings/me", response_model=list[schemas.Listing])
 def list_my_listings(
     db: Session = Depends(get_db),
@@ -665,10 +703,28 @@ def list_my_listings(
 def get_listing(
     listing_id: int,
     db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
 ):
     listing = db.query(models.Listing).options(joinedload(models.Listing.owner)).filter(models.Listing.id == listing_id).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
+    
+    # --- STAGE 2: IMPLICIT SIGNAL (VIEW) ---
+    if current_user:
+        try:
+            # We don't want to fail the request if logging fails
+            view_act = models.UserActivity(
+                user_id=current_user.id,
+                listing_id=listing_id,
+                activity_type="view",
+                weight=1.0
+            )
+            db.add(view_act)
+            db.commit()
+        except Exception as e:
+            print(f"!!! Failed to log view activity: {e}")
+            db.rollback()
+
     return listing
 
 
@@ -775,6 +831,16 @@ def add_to_wishlist(
         
     wish_item = models.WishlistItem(user_id=current_user.id, listing_id=listing_id)
     db.add(wish_item)
+
+    # --- STAGE 2: EXPLICIT SIGNAL (WISHLIST) ---
+    wish_act = models.UserActivity(
+        user_id=current_user.id,
+        listing_id=listing_id,
+        activity_type="wishlist",
+        weight=5.0
+    )
+    db.add(wish_act)
+
     db.commit()
     db.refresh(wish_item)
     return wish_item
@@ -846,7 +912,132 @@ def get_orders(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    return db.query(models.Order).filter(models.Order.user_id == current_user.id).all()
+    from sqlalchemy.orm import joinedload
+    return db.query(models.Order).options(
+        joinedload(models.Order.items).joinedload(models.OrderItem.listing).joinedload(models.Listing.images)
+    ).filter(models.Order.user_id == current_user.id).all()
+
+
+@app.get("/sales", response_model=List[schemas.Order])
+def get_sales(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Fetch orders where the current user is the seller of at least one item."""
+    from sqlalchemy.orm import joinedload
+    return db.query(models.Order).join(models.OrderItem).join(models.Listing).options(
+        joinedload(models.Order.items).joinedload(models.OrderItem.listing).joinedload(models.Listing.images)
+    ).filter(
+        models.Listing.owner_id == current_user.id
+    ).distinct().all()
+
+
+@app.post("/listings/{listing_id}/buy", response_model=schemas.Order)
+def request_buy(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Initiate a buy request: sends a message and creates an 'ongoing' order."""
+    listing = db.query(models.Listing).filter(models.Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.owner_id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot buy your own listing")
+
+    # 1. Ensure conversation exists and send message
+    from .chat_models import Conversation, Message
+    from datetime import datetime
+    
+    convo = db.query(Conversation).filter(
+        Conversation.listing_id == listing_id,
+        Conversation.buyer_id == current_user.id,
+        Conversation.seller_id == listing.owner_id
+    ).first()
+    
+    if not convo:
+        convo = Conversation(
+            listing_id=listing_id,
+            buyer_id=current_user.id,
+            seller_id=listing.owner_id
+        )
+        db.add(convo)
+        db.commit()
+        db.refresh(convo)
+    
+    msg = Message(
+        conversation_id=convo.id,
+        sender_id=current_user.id,
+        content=f"Hello! I am interested in buying '{listing.title}'. I've sent a buy request."
+    )
+    db.add(msg)
+    
+    # 2. Create Order with 'ongoing' status
+    order = models.Order(user_id=current_user.id, total_amount=listing.price, status="ongoing")
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    
+    order_item = models.OrderItem(
+        order_id=order.id,
+        listing_id=listing.id,
+        price_at_order=listing.price
+    )
+    db.add(order_item)
+
+    # --- STAGE 2: EXPLICIT SIGNAL (BUY) ---
+    buy_act = models.UserActivity(
+        user_id=current_user.id,
+        listing_id=listing_id,
+        activity_type="purchase",
+        weight=15.0
+    )
+    db.add(buy_act)
+
+    db.commit()
+    db.refresh(order)
+    
+    return order
+
+
+@app.post("/orders/{order_id}/accept")
+def accept_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Check if current_user is the seller of items in this order
+    if not order.items or order.items[0].listing.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only the seller can accept this request")
+    
+    if order.status != "ongoing":
+        return {"status": "order is not in ongoing state", "current_status": order.status}
+
+    order.status = "pending" # Accepted, now pending settlement
+    db.commit()
+    return {"status": "accepted", "new_status": "pending"}
+
+
+@app.post("/orders/{order_id}/reject")
+def reject_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if not order.items or order.items[0].listing.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only the seller can reject this request")
+
+    order.status = "cancelled"
+    db.commit()
+    return {"status": "rejected", "new_status": "cancelled"}
 
 
 @app.post("/orders/{order_id}/complete")
@@ -1131,9 +1322,75 @@ def get_exchange_chains(
     return chains
 
 
+
+# ──────────────────────────────────────────────────────────────────────
+# Recommendation Endpoints
+# ──────────────────────────────────────────────────────────────────────
+
+@app.get("/recommendations/personalized", response_model=List[schemas.Listing])
+def get_personalized_recommendations(
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+):
+    """Fetch personalized recommendations for the logged-in user."""
+    if not current_user:
+        return []
+    from .recommendation import get_user_profile_recommendations
+    return get_user_profile_recommendations(db, current_user.id)
+
+@app.get("/listings/{listing_id}/recommendations", response_model=schemas.RecommendationResponse)
+def get_listing_recommendations(
+    listing_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional), # Corrected to optional
+):
+    """
+    Fetch all types of recommendations for a specific listing detail page:
+    1. Frequently Bought Together
+    2. Visually Similar (Semantic fallback)
+    3. User-specific personalized (if logged in)
+    """
+    from .recommendation import (
+        get_user_profile_recommendations,
+        get_frequently_brought_together,
+        get_visually_similar_listings
+    )
+    
+    fbt = get_frequently_brought_together(db, listing_id)
+    visual = get_visually_similar_listings(db, listing_id)
+    
+    personalized = []
+    if current_user:
+        personalized = get_user_profile_recommendations(db, current_user.id, top_k=5)
+    
+    return schemas.RecommendationResponse(
+        user_recommendations=personalized,
+        frequently_bought_together=fbt,
+        visually_similar=visual
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Trust & Review Endpoints
 # ──────────────────────────────────────────────────────────────────────
+
+@app.post("/activities", response_model=schemas.UserActivity)
+def log_activity(
+    payload: schemas.UserActivityCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    activity = models.UserActivity(
+        user_id=current_user.id,
+        listing_id=payload.listing_id,
+        activity_type=payload.activity_type,
+        weight=payload.weight
+    )
+    db.add(activity)
+    db.commit()
+    db.refresh(activity)
+    return activity
+
 
 @app.post("/users/{user_id}/vouch")
 def vouch_user(

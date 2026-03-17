@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { Search, Package, MapPin, ArrowRight } from 'lucide-react'
 import './HomePage.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = '/api'
 
 export default function SearchPage({ token }: { token: string | null }) {
     const [searchParams] = useSearchParams()

@@ -224,3 +224,31 @@ class ChainMatch(BaseModel):
     your_listing: Listing
     chain: List[Listing]  # Me(A) -> X(B) -> Y(C) -- where C matches A's wants
 
+class PriceEstimateResponse(BaseModel):
+    average_price: float
+    min_price: float
+    max_price: float
+    count: int
+    similar_listings: List[Listing]
+
+class RecommendationResponse(BaseModel):
+    user_recommendations: List[Listing]
+    frequently_bought_together: List[Listing]
+    visually_similar: List[Listing]
+
+
+class UserActivityCreate(BaseModel):
+    listing_id: int
+    activity_type: str  # view, click, wishlist, message, purchase
+    weight: Optional[float] = 1.0
+
+class UserActivity(BaseModel):
+    id: int
+    user_id: int
+    listing_id: int
+    activity_type: str
+    weight: float
+    created_at: Any
+
+    class Config:
+        from_attributes = True

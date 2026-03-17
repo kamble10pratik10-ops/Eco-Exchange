@@ -21,7 +21,7 @@ import './ListingDetailPage.css'
 
 const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? `http://${window.location.hostname}:8000`
-    : 'http://127.0.0.1:8000'
+    : '/api'
 
 type ProductImage = {
     id: number
@@ -58,10 +58,18 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
     const [activeImage, setActiveImage] = useState(0)
     const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null)
     const [deleting, setDeleting] = useState(false)
+    const [recs, setRecs] = useState<{
+        user_recommendations: Listing[],
+        frequently_bought_together: Listing[],
+        visually_similar: Listing[]
+    } | null>(null)
+    const [loadingRecs, setLoadingRecs] = useState(false)
+
     const navigate = useNavigate()
 
     useEffect(() => {
         const fetchDetail = async () => {
+            setError(null)
             try {
                 const res = await fetch(`${API_URL}/listings/${id}`, {
                     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -94,6 +102,27 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
             }
         }
         fetchDetail()
+    }, [id, token])
+
+    // Fetch Recommendations
+    useEffect(() => {
+        const fetchRecs = async () => {
+            setLoadingRecs(true)
+            try {
+                const res = await fetch(`${API_URL}/listings/${id}/recommendations`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                })
+                if (res.ok) {
+                    const data = await res.json()
+                    setRecs(data)
+                }
+            } catch (e) {
+                console.error("Failed to fetch recommendations", e)
+            } finally {
+                setLoadingRecs(false)
+            }
+        }
+        if (id) fetchRecs()
     }, [id, token])
 
     // Poll for AI Score updates if it's still null
@@ -161,6 +190,26 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
 
     const isOwner = currentUser && listing && currentUser.id === listing.owner_id
 
+    const handleBuy = async () => {
+        if (!token) return navigate('/login')
+        try {
+            const res = await fetch(`${API_URL}/listings/${id}/buy`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (res.ok) {
+                alert("Buy request sent! You can track it in your profile history.")
+                navigate('/my-profile')
+            } else {
+                const err = await res.json()
+                alert(err.detail || "Failed to process buy request")
+            }
+        } catch (err) {
+            console.error(err)
+            alert("Error sending buy request")
+        }
+    }
+
     if (loading) return <div className="loading-container-elite"><span>Curating details...</span></div>
     if (error || !listing) return <div className="error-card glass">{error || 'Listing not found'}</div>
 
@@ -169,226 +218,314 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
     const waterSaved = Math.round(listing.price / 10) + 50
 
     return (
-        <motion.div
-            className="detail-page-elite"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-        >
-            <div className="cinematic-gallery">
-                <button className="btn-back-elite" onClick={() => navigate(-1)}>
-                    <ArrowLeft size={18} />
-                    <span>Gallery</span>
-                </button>
+        <div className="detail-layout-container">
+            <motion.div
+                className="detail-page-elite"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+            >
+                <div className="cinematic-gallery">
+                    <button className="btn-back-elite" onClick={() => navigate(-1)}>
+                        <ArrowLeft size={18} />
+                        <span>Gallery</span>
+                    </button>
 
-                <motion.div
-                    className="main-image-elite"
-                    key={activeImage}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.4 }}
-                >
-                    <img
-                        src={listing.images[activeImage]?.url || 'https://placehold.co/800x1000/1e293b/10b981?text=Eco+Exchange'}
-                        alt={listing.title}
-                    />
-                </motion.div>
+                    <motion.div
+                        className="main-image-elite"
+                        key={activeImage}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.4 }}
+                    >
+                        <img
+                            src={listing.images[activeImage]?.url || 'https://placehold.co/800x1000/1e293b/10b981?text=Eco+Exchange'}
+                            alt={listing.title}
+                        />
+                    </motion.div>
 
-                {listing.images && listing.images.length > 1 && (
-                    <div className="thumbnail-strip-elite">
-                        {listing.images.map((img, idx) => (
-                            <div
-                                key={img.id}
-                                className={`thumbnail-elite ${activeImage === idx ? 'active' : ''}`}
-                                onClick={() => setActiveImage(idx)}
-                            >
-                                <img src={img.url} alt={`View ${idx + 1}`} />
-                            </div>
-                        ))}
-                    </div>
-                )}
+                    {listing.images && listing.images.length > 1 && (
+                        <div className="thumbnail-strip-elite">
+                            {listing.images.map((img, idx) => (
+                                <div
+                                    key={img.id}
+                                    className={`thumbnail-elite ${activeImage === idx ? 'active' : ''}`}
+                                    onClick={() => setActiveImage(idx)}
+                                >
+                                    <img src={img.url} alt={`View ${idx + 1}`} />
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
-                <div className="impact-grid">
-                    <div className="impact-card-neumorphic">
-                        <TreePine size={24} className="emerald-glow" style={{ marginBottom: '12px' }} />
-                        <span className="impact-value">{co2Saved}kg</span>
-                        <span className="impact-label">CO2 Saved</span>
-                    </div>
-                    <div className="impact-card-neumorphic">
-                        <Zap size={24} style={{ color: '#3b82f6', marginBottom: '12px' }} />
-                        <span className="impact-value">{waterSaved}L</span>
-                        <span className="impact-label">Water Impact</span>
+                    <div className="impact-grid">
+                        <div className="impact-card-neumorphic">
+                            <TreePine size={24} className="emerald-glow" style={{ marginBottom: '12px' }} />
+                            <span className="impact-value">{co2Saved}kg</span>
+                            <span className="impact-label">CO2 Saved</span>
+                        </div>
+                        <div className="impact-card-neumorphic">
+                            <Zap size={24} style={{ color: '#3b82f6', marginBottom: '12px' }} />
+                            <span className="impact-value">{waterSaved}L</span>
+                            <span className="impact-label">Water Impact</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="detail-info-pane">
-                <div className="detail-header-elite">
-                    <div className="detail-meta-row">
-                        <span className="emerald-badge">{listing.category || 'General'}</span>
+                <div className="detail-info-pane">
+                    <div className="detail-header-elite">
+                        <div className="detail-meta-row">
+                            <span className="emerald-badge">{listing.category || 'General'}</span>
 
-                        {listing.images?.[0] && (
-                            listing.images[0].quality_score !== null && listing.images[0].quality_score !== undefined ? (
-                                <span className="ai-badge-elite" style={{
-                                    background: listing.images[0].quality_score < 5 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                                    color: listing.images[0].quality_score < 5 ? '#ef4444' : '#10b981',
-                                    border: listing.images[0].quality_score < 5 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16,185,129,0.3)',
-                                    padding: '4px 10px',
-                                    borderRadius: '12px',
-                                    fontSize: '0.8rem',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    fontWeight: 600
-                                }}>
-                                    <Sparkles size={14} />
-                                    AI Verified: {listing.images[0].quality_score}/10
-                                </span>
-                            ) : (
-                                <span className="ai-badge-elite" style={{
-                                    background: 'rgba(59, 130, 246, 0.15)',
-                                    color: '#3b82f6',
-                                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                                    padding: '4px 10px',
-                                    borderRadius: '12px',
-                                    fontSize: '0.8rem',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    fontWeight: 600
-                                }}>
-                                    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}>
-                                        <Loader2 size={14} />
-                                    </motion.div>
-                                    AI Analyzing...
-                                </span>
-                            )
-                        )}
+                            {listing.images?.[0] && (
+                                listing.images[0].quality_score !== null && listing.images[0].quality_score !== undefined ? (
+                                    <span className="ai-badge-elite" style={{
+                                        background: listing.images[0].quality_score < 5 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                                        color: listing.images[0].quality_score < 5 ? '#ef4444' : '#10b981',
+                                        border: listing.images[0].quality_score < 5 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16,185,129,0.3)',
+                                        padding: '4px 10px',
+                                        borderRadius: '12px',
+                                        fontSize: '0.8rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        fontWeight: 600
+                                    }}>
+                                        <Sparkles size={14} />
+                                        AI Verified: {listing.images[0].quality_score}/10
+                                    </span>
+                                ) : (
+                                    <span className="ai-badge-elite" style={{
+                                        background: 'rgba(59, 130, 246, 0.15)',
+                                        color: '#3b82f6',
+                                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                                        padding: '4px 10px',
+                                        borderRadius: '12px',
+                                        fontSize: '0.8rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        fontWeight: 600
+                                    }}>
+                                        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}>
+                                            <Loader2 size={14} />
+                                        </motion.div>
+                                        AI Analyzing...
+                                    </span>
+                                )
+                            )}
 
-                        <div className="meta-actions">
-                            {isOwner ? (
-                                <>
-                                    <Link to={`/listings/edit/${id}`} className="action-circle edit">
-                                        <Edit3 size={18} />
-                                    </Link>
-                                    <button
-                                        className="action-circle delete"
-                                        onClick={handleDelete}
-                                        disabled={deleting}
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <button className={`action-circle ${wishlisted ? 'active' : ''}`} onClick={handleWishlist}>
-                                        <Heart size={20} fill={wishlisted ? "currentColor" : "none"} />
-                                    </button>
-                                    <button className="action-circle"><Share2 size={20} /></button>
-                                </>
+                            <div className="meta-actions">
+                                {isOwner ? (
+                                    <>
+                                        <Link to={`/listings/edit/${id}`} className="action-circle edit">
+                                            <Edit3 size={18} />
+                                        </Link>
+                                        <button
+                                            className="action-circle delete"
+                                            onClick={handleDelete}
+                                            disabled={deleting}
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button className={`action-circle ${wishlisted ? 'active' : ''}`} onClick={handleWishlist}>
+                                            <Heart size={20} fill={wishlisted ? "currentColor" : "none"} />
+                                        </button>
+                                        <button className="action-circle"><Share2 size={20} /></button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                        <h1 className="text-gradient">{listing.title}</h1>
+                        <div className="detail-price-elite">₹{listing.price.toLocaleString()}</div>
+                    </div>
+
+                    <div className="detail-specs glass">
+                        <div className="spec-item">
+                            <MapPin size={18} />
+                            <span>{listing.city || 'Global'}</span>
+                        </div>
+                        <div className="spec-item">
+                            <Calendar size={18} />
+                            <span>Listed {new Date().toLocaleDateString()}</span>
+                        </div>
+                        <div className="spec-item">
+                            <Shield size={18} />
+                            <span>Verified Exchange</span>
+                        </div>
+                    </div>
+
+                    <div className="description-section">
+                        <h3>The Narrative</h3>
+                        <p className="description-elite">{listing.description}</p>
+                    </div>
+
+                    {listing.accept_exchange && (
+                        <div className="exchange-section glass" style={{ marginTop: '32px', padding: '24px', borderRadius: '16px', border: '1px solid var(--accent-emerald)', background: 'rgba(16, 185, 129, 0.03)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                <Package size={24} className="emerald-glow" />
+                                <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Ecosystem Exchange</h3>
+                            </div>
+                            <p style={{ color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                                The owner is open to exchanging this item for something of equal value or interest.
+                            </p>
+                            {listing.exchange_preferences && (
+                                <div className="preference-box" style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', borderLeft: '3px solid var(--accent-emerald)' }}>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--accent-emerald)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Seeking in returns:</span>
+                                    <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--text-primary)' }}>"{listing.exchange_preferences}"</p>
+                                </div>
                             )}
                         </div>
-                    </div>
-                    <h1 className="text-gradient">{listing.title}</h1>
-                    <div className="detail-price-elite">₹{listing.price.toLocaleString()}</div>
-                </div>
+                    )}
 
-                <div className="detail-specs glass">
-                    <div className="spec-item">
-                        <MapPin size={18} />
-                        <span>{listing.city || 'Global'}</span>
-                    </div>
-                    <div className="spec-item">
-                        <Calendar size={18} />
-                        <span>Listed {new Date().toLocaleDateString()}</span>
-                    </div>
-                    <div className="spec-item">
-                        <Shield size={18} />
-                        <span>Verified Exchange</span>
-                    </div>
-                </div>
-
-                <div className="description-section">
-                    <h3>The Narrative</h3>
-                    <p className="description-elite">{listing.description}</p>
-                </div>
-
-                {listing.accept_exchange && (
-                    <div className="exchange-section glass" style={{ marginTop: '32px', padding: '24px', borderRadius: '16px', border: '1px solid var(--accent-emerald)', background: 'rgba(16, 185, 129, 0.03)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                            <Package size={24} className="emerald-glow" />
-                            <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Ecosystem Exchange</h3>
-                        </div>
-                        <p style={{ color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                            The owner is open to exchanging this item for something of equal value or interest.
-                        </p>
-                        {listing.exchange_preferences && (
-                            <div className="preference-box" style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', borderLeft: '3px solid var(--accent-emerald)' }}>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--accent-emerald)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Seeking in returns:</span>
-                                <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--text-primary)' }}>"{listing.exchange_preferences}"</p>
+                    <div className="owner-section">
+                        <h3>Guardian of this Item</h3>
+                        <div className="owner-card-elite">
+                            <div className="owner-avatar">
+                                {listing.owner?.profile_image_url ? (
+                                    <img src={listing.owner.profile_image_url} alt={listing.owner.name} />
+                                ) : (
+                                    <span>{listing.owner?.name?.[0] || 'U'}</span>
+                                )}
                             </div>
-                        )}
-                    </div>
-                )}
-
-                <div className="owner-section">
-                    <h3>Guardian of this Item</h3>
-                    <div className="owner-card-elite">
-                        <div className="owner-avatar">
-                            {listing.owner?.profile_image_url ? (
-                                <img src={listing.owner.profile_image_url} alt={listing.owner.name} />
-                            ) : (
-                                <span>{listing.owner?.name?.[0] || 'U'}</span>
-                            )}
+                            <div className="owner-meta">
+                                <span className="owner-name">{listing.owner?.name || 'Ecosystem Member'}</span>
+                                <span className="owner-rating">★★★★★ · 4.9 Trust Score</span>
+                            </div>
+                            <Link to={`/users/${listing.owner_id}`} className="btn-link-elite">View Profile</Link>
                         </div>
-                        <div className="owner-meta">
-                            <span className="owner-name">{listing.owner?.name || 'Ecosystem Member'}</span>
-                            <span className="owner-rating">★★★★★ · 4.9 Trust Score</span>
-                        </div>
-                        <Link to={`/users/${listing.owner_id}`} className="btn-link-elite">View Profile</Link>
                     </div>
-                </div>
 
-                {!isOwner && (
-                    <div className="purchase-actions">
-                        <button
-                            onClick={async () => {
-                                if (!token) return navigate('/login');
-                                try {
-                                    const res = await fetch(`${API_URL}/messages/conversations`, {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            Authorization: `Bearer ${token}`
-                                        },
-                                        body: JSON.stringify({ listing_id: Number(id) })
-                                    });
-                                    if (res.ok) {
-                                        const data = await res.json();
-                                        console.log(`[ListingDetail] Requested Listing ID: ${Number(id)}, Returned Conversation ID: ${data.id}`);
-                                        navigate(`/chat/${data.id}`);
-                                    } else {
-                                        const err = await res.json();
-                                        console.error("[ListingDetail] Signaling Fault:", err);
-                                        alert(err.detail || "Unable to start conversation");
+                    {!isOwner && (
+                        <div className="purchase-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                            <button
+                                onClick={async () => {
+                                    if (!token) return navigate('/login');
+                                    try {
+                                        const res = await fetch(`${API_URL}/messages/conversations`, {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                                Authorization: `Bearer ${token}`
+                                            },
+                                            body: JSON.stringify({ listing_id: Number(id) })
+                                        });
+                                        if (res.ok) {
+                                            const data = await res.json();
+                                            console.log(`[ListingDetail] Requested Listing ID: ${Number(id)}, Returned Conversation ID: ${data.id}`);
+                                            navigate(`/chat/${data.id}`);
+                                        } else {
+                                            const err = await res.json();
+                                            console.error("[ListingDetail] Signaling Fault:", err);
+                                            alert(err.detail || "Unable to start conversation");
+                                        }
+                                    } catch (err) {
+                                        console.error(err);
+                                        alert("Connection fault in signaling thread");
                                     }
-                                } catch (err) {
-                                    console.error(err);
-                                    alert("Connection fault in signaling thread");
-                                }
-                            }}
-                            className="btn-chat-premium"
-                            style={{ width: '100%', border: 'none', cursor: 'pointer' }}
-                        >
-                            <MessageSquare size={20} />
-                            <span>Secure Negotiation</span>
-                        </button>
-                        <p className="trust-footer">
-                            <Shield size={12} />
-                            Your payment is protected by Eco-Exchange Vault.
-                        </p>
-                    </div>
+                                }}
+                                className="btn-chat-premium"
+                                style={{ flex: 1, minWidth: '200px', border: 'none', cursor: 'pointer' }}
+                            >
+                                <MessageSquare size={20} />
+                                <span>Secure Negotiation</span>
+                            </button>
+                            
+                            <button
+                                onClick={handleBuy}
+                                className="btn-chat-premium"
+                                style={{ 
+                                    flex: 1, 
+                                    minWidth: '200px', 
+                                    border: 'none', 
+                                    cursor: 'pointer',
+                                    background: 'var(--accent-emerald)',
+                                    color: '#fff'
+                                }}
+                            >
+                                <Zap size={20} />
+                                <span>Buy Now</span>
+                            </button>
+
+                            <p className="trust-footer" style={{ width: '100%' }}>
+                                <Shield size={12} />
+                                Your payment is protected by Eco-Exchange Vault.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </motion.div>
+
+            {/* RECOMMENDATIONS SECTION */}
+            <div className="recommendations-container-elite">
+                {recs?.frequently_bought_together && recs.frequently_bought_together.length > 0 && (
+                    <section className="recommendation-section">
+                        <div className="section-header-recs">
+                            <Package size={20} className="emerald-glow" />
+                            <h2>Frequently Brought Together</h2>
+                        </div>
+                        <div className="recs-scroll-list">
+                            {recs.frequently_bought_together.map(item => (
+                                <Link to={`/listings/${item.id}`} key={item.id} className="rec-card-mini glass">
+                                    <div className="rec-image">
+                                        <img src={item.images[0]?.url} alt={item.title} />
+                                    </div>
+                                    <div className="rec-details">
+                                        <span className="rec-title">{item.title}</span>
+                                        <span className="rec-price">₹{item.price}</span>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                {recs?.visually_similar && recs.visually_similar.length > 0 && (
+                    <section className="recommendation-section">
+                        <div className="section-header-recs">
+                            <Sparkles size={20} style={{ color: '#3b82f6' }} />
+                            <h2>Visually Similar Products</h2>
+                        </div>
+                        <div className="recs-scroll-list">
+                            {recs.visually_similar.map(item => (
+                                <Link to={`/listings/${item.id}`} key={item.id} className="rec-card-mini glass">
+                                    <div className="rec-image">
+                                        <img src={item.images[0]?.url} alt={item.title} />
+                                    </div>
+                                    <div className="rec-details">
+                                        <span className="rec-title">{item.title}</span>
+                                        <span className="rec-price">₹{item.price}</span>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                {recs?.user_recommendations && recs.user_recommendations.length > 0 && (
+                    <section className="recommendation-section personalized">
+                        <div className="section-header-recs">
+                            <Zap size={20} style={{ color: '#f59e0b' }} />
+                            <h2>Suggested Just For You</h2>
+                        </div>
+                        <div className="recs-scroll-list">
+                            {recs.user_recommendations.map(item => (
+                                <Link to={`/listings/${item.id}`} key={item.id} className="rec-card-mini glass">
+                                    <div className="rec-image">
+                                        <img src={item.images[0]?.url} alt={item.title} />
+                                    </div>
+                                    <div className="rec-details">
+                                        <span className="rec-title">{item.title}</span>
+                                        <span className="rec-price">₹{item.price}</span>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    </section>
                 )}
             </div>
-        </motion.div>
+        </div>
     )
 }

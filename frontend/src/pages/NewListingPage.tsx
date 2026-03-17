@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -9,13 +9,14 @@ import {
     ArrowRight,
     Info,
     Package,
-    Check
+    Check,
+    TrendingUp
 } from 'lucide-react'
 import './NewListingPage.css'
 
 const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? `http://${window.location.hostname}:8000`
-    : 'http://127.0.0.1:8000'
+    : '/api'
 
 export default function NewListingPage({ token }: { token: string | null }) {
     const [step, setStep] = useState(1)
@@ -32,8 +33,35 @@ export default function NewListingPage({ token }: { token: string | null }) {
     const [previews, setPreviews] = useState<string[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [priceEstimate, setPriceEstimate] = useState<any>(null)
 
     const navigate = useNavigate()
+
+    // --- Debounced Price Estimate Logic ---
+    useEffect(() => {
+        if (formData.title.length < 3) {
+            setPriceEstimate(null)
+            return
+        }
+
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`${API_URL}/listings/price-estimate?title=${encodeURIComponent(formData.title)}`)
+                if (res.ok) {
+                    const data = await res.json()
+                    if (data.count > 0) {
+                        setPriceEstimate(data)
+                    } else {
+                        setPriceEstimate(null)
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch price estimate:", err)
+            }
+        }, 800) // 800ms debounce
+
+        return () => clearTimeout(timer)
+    }, [formData.title])
 
     const CATEGORIES = [
         "Electronics & Technology",
@@ -223,6 +251,42 @@ export default function NewListingPage({ token }: { token: string | null }) {
                                         value={formData.price}
                                         onChange={e => setFormData({ ...formData, price: e.target.value })}
                                     />
+                                    {priceEstimate && (
+                                        <motion.div 
+                                            initial={{ opacity: 0, y: -10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className="price-insight-card"
+                                            style={{ 
+                                                marginTop: '12px', 
+                                                background: 'rgba(16, 185, 129, 0.1)', 
+                                                padding: '12px', 
+                                                borderRadius: '12px',
+                                                border: '1px solid rgba(16, 185, 129, 0.2)'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                <TrendingUp size={16} className="emerald-glow" />
+                                                <span style={{ fontSize: '14px', fontWeight: 600 }}>Market Insights</span>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                                                <div style={{ textAlign: 'center' }}>
+                                                    <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0 }}>AVG</p>
+                                                    <p style={{ fontSize: '14px', color: 'var(--accent-emerald)', fontWeight: 700 }}>₹{priceEstimate.average_price}</p>
+                                                </div>
+                                                <div style={{ textAlign: 'center' }}>
+                                                    <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0 }}>MIN</p>
+                                                    <p style={{ fontSize: '14px', fontWeight: 600 }}>₹{priceEstimate.min_price}</p>
+                                                </div>
+                                                <div style={{ textAlign: 'center' }}>
+                                                    <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: 0 }}>MAX</p>
+                                                    <p style={{ fontSize: '14px', fontWeight: 600 }}>₹{priceEstimate.max_price}</p>
+                                                </div>
+                                            </div>
+                                            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+                                                Based on {priceEstimate.count} similar listings in the ecosystem.
+                                            </p>
+                                        </motion.div>
+                                    )}
                                 </div>
 
                                 <div className="exchange-concept-elite glass" style={{ marginTop: '24px', padding: '20px', borderRadius: '16px', border: '1px solid var(--accent-emerald)' }}>

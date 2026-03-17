@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 // removed unused icons
 import './AuthLayout.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = '/api'
 
 export default function RegisterPage() {
     const [formData, setFormData] = useState({

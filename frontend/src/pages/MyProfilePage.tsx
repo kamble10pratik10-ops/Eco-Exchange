@@ -5,7 +5,7 @@ import { Calendar, Package, ArrowRight, ShieldCheck, Settings, TrendingUp, Hands
 import { AnimatePresence } from 'framer-motion'
 import './HomePage.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = '/api'
 
 type UserProfile = {
   id: number
@@ -27,7 +27,9 @@ export default function MyProfilePage({ token }: { token: string | null }) {
   const { id } = useParams()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'inventory' | 'reviews'>('inventory')
+  const [activeTab, setActiveTab] = useState<'inventory' | 'reviews' | 'buying' | 'selling'>('inventory')
+  const [buyingHistory, setBuyingHistory] = useState<any[]>([])
+  const [sellingHistory, setSellingHistory] = useState<any[]>([])
 
   useEffect(() => {
     // If no ID is provided, we're viewing our own profile
@@ -40,7 +42,61 @@ export default function MyProfilePage({ token }: { token: string | null }) {
         setProfile(data)
         setLoading(false)
       })
+
+    // Fetch history if viewing own profile
+    if (!id && token) {
+      fetch(`${API_URL}/orders`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.json())
+        .then(data => setBuyingHistory(data))
+
+      fetch(`${API_URL}/sales`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.json())
+        .then(data => setSellingHistory(data))
+    }
   }, [id, token])
+
+  const handleAcceptOrder = async (orderId: number) => {
+    if (!token) return
+    try {
+      const res = await fetch(`${API_URL}/orders/${orderId}/accept`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        alert("Order accepted!")
+        // Refresh sales history
+        fetch(`${API_URL}/sales`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(r => r.json())
+          .then(data => setSellingHistory(data))
+      }
+    } catch (err) { console.error(err) }
+  }
+
+  const handleRejectOrder = async (orderId: number) => {
+    if (!token) return
+    if (!window.confirm("Are you sure you want to reject this request?")) return
+    try {
+      const res = await fetch(`${API_URL}/orders/${orderId}/reject`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        alert("Order rejected")
+        // Refresh sales history
+        fetch(`${API_URL}/sales`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(r => r.json())
+          .then(data => setSellingHistory(data))
+      }
+    } catch (err) { console.error(err) }
+  }
 
   if (loading) return <div className="loading-container-elite"><span>Retrieving community record...</span></div>
   if (!profile) return <div className="error-card glass">Profile not found</div>
@@ -194,6 +250,38 @@ export default function MyProfilePage({ token }: { token: string | null }) {
         >
           Active Inventory
         </button>
+        {!id && (
+          <>
+            <button
+              onClick={() => setActiveTab('buying')}
+              style={{
+                padding: '16px 8px',
+                background: 'transparent',
+                border: 'none',
+                color: activeTab === 'buying' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+                borderBottom: activeTab === 'buying' ? '2px solid var(--accent-emerald)' : 'none',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Buying History ({buyingHistory.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('selling')}
+              style={{
+                padding: '16px 8px',
+                background: 'transparent',
+                border: 'none',
+                color: activeTab === 'selling' ? 'var(--accent-emerald)' : 'var(--text-secondary)',
+                borderBottom: activeTab === 'selling' ? '2px solid var(--accent-emerald)' : 'none',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Selling History ({sellingHistory.length})
+            </button>
+          </>
+        )}
         <button
           onClick={() => setActiveTab('reviews')}
           style={{
@@ -243,6 +331,112 @@ export default function MyProfilePage({ token }: { token: string | null }) {
                       </div>
                     </article>
                   </motion.div>
+                ))}
+              </div>
+            )}
+          </motion.section>
+        ) : activeTab === 'buying' ? (
+          <motion.section
+            key="buying"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
+            className="profile-assets"
+          >
+            {buyingHistory.length === 0 ? (
+              <div className="empty-state-elite">
+                <Package size={48} />
+                <p>No orders found.</p>
+              </div>
+            ) : (
+              <div className="listing-grid-elite">
+                {buyingHistory.map((order: any) => (
+                  order.items?.map((item: any) => (
+                    <motion.div key={item.id} className="elite-card-wrap">
+                      <article className="elite-card">
+                        <div className="card-image-wrap">
+                          <img src={item.listing?.images?.[0]?.url || 'https://placehold.co/400x400/1e293b/10b981?text=Order'} alt="" className="elite-card-image" />
+                        </div>
+                        <div className="card-content-elite">
+                          <h3 className="card-title-elite">{item.listing?.title}</h3>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                            Order #{order.id} • {order.status}
+                          </div>
+                          <div className="card-footer-elite">
+                            <span className="price-elite">₹{item.price_at_order?.toLocaleString()}</span>
+                            <Link to={`/listings/${item.listing?.id}`} className="btn-view-elite">
+                              <ArrowRight size={18} />
+                            </Link>
+                          </div>
+                        </div>
+                      </article>
+                    </motion.div>
+                  ))
+                ))}
+              </div>
+            )}
+          </motion.section>
+        ) : activeTab === 'selling' ? (
+          <motion.section
+            key="selling"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
+            className="profile-assets"
+          >
+            {sellingHistory.length === 0 ? (
+              <div className="empty-state-elite">
+                <Package size={48} />
+                <p>No sales found.</p>
+              </div>
+            ) : (
+              <div className="listing-grid-elite">
+                {sellingHistory.map((order: any) => (
+                  order.items?.map((item: any) => (
+                    <motion.div key={item.id} className="elite-card-wrap">
+                      <article className="elite-card">
+                        <div className="card-image-wrap">
+                          <img src={item.listing?.images?.[0]?.url || 'https://placehold.co/400x400/1e293b/10b981?text=Sale'} alt="" className="elite-card-image" />
+                        </div>
+                        <div className="card-content-elite">
+                          <h3 className="card-title-elite">{item.listing?.title}</h3>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                            {order.status === 'ongoing' ? 'New Buy Request' : `Status: ${order.status}`}
+                          </div>
+                          <div className="card-footer-elite" style={{ flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+                            <span className="price-elite">₹{item.price_at_order?.toLocaleString()}</span>
+                            
+                            {order.status === 'ongoing' && (
+                              <div style={{ display: 'flex', gap: '8px', width: '100%', marginTop: '8px' }}>
+                                <button 
+                                  onClick={() => handleAcceptOrder(order.id)}
+                                  className="btn-chat-premium"
+                                  style={{ flex: 1, background: 'var(--accent-emerald)', border: 'none', color: '#fff', padding: '8px', fontSize: '0.8rem', cursor: 'pointer' }}
+                                >
+                                  Accept
+                                </button>
+                                <button 
+                                  onClick={() => handleRejectOrder(order.id)}
+                                  className="btn-chat-premium"
+                                  style={{ flex: 1, background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', padding: '8px', fontSize: '0.8rem', cursor: 'pointer' }}
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+
+                            {order.status === 'pending' && (
+                              <span style={{ color: 'var(--accent-emerald)', fontSize: '0.9rem', fontWeight: 700, marginTop: '8px' }}>Accepted (Pending Trade)</span>
+                            )}
+
+                            <Link to={`/listings/${item.listing?.id}`} className="btn-view-elite" style={{ position: 'absolute', right: '12px', top: '12px' }}>
+                              <ArrowRight size={18} />
+                            </Link>
+                          </div>
+                        </div>
+                      </article>
+                    </motion.div>
+                  ))
                 ))}
               </div>
             )}

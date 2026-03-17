@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { Sparkles } from 'lucide-react'
 import './AuthLayout.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = '/api'
 
 type LoginPageProps = {
     onLogin: (token: string | null) => void

@@ -12,10 +12,10 @@ from .database import get_db
 
 SECRET_KEY = "CHANGE_ME_IN_PRODUCTION"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -63,12 +63,16 @@ import base64
 import json
 import time
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    if not token:
+        print("!!! [AUTH] Token missing")
+        raise credentials_exception
     
     print(f"--> [AUTH] Verifying token: {token[:15]}...")
     
@@ -127,3 +131,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         print(f"!!! [AUTH] User {user_id} not found in DB")
         raise credentials_exception
     return user
+
+
+async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> Optional[models.User]:
+    if not token:
+        return None
+    try:
+        # We can just reuse get_current_user but catch the exception
+        return await get_current_user(token, db)
+    except HTTPException:
+        return None

@@ -170,3 +170,16 @@ class Dispute(Base):
     order = relationship("Order")
 
 
+
+class UserActivity(Base):
+    __tablename__ = "user_activities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    listing_id = Column(Integer, ForeignKey("listings.id"))
+    activity_type = Column(String)  # view, click, wishlist, message, purchase
+    weight = Column(Float, default=1.0) # weight of the action
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    listing = relationship("Listing")

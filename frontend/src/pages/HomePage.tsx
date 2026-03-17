@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import './HomePage.css'
 
-const API_URL = 'http://127.0.0.1:8000'
+const API_URL = '/api'
 
 type ProductImage = {
   id: number
@@ -40,11 +40,24 @@ export default function HomePage({ token }: { token: string | null }) {
   const [error, setError] = useState<string | null>(null)
   const [wishlistIds, setWishlistIds] = useState<Set<number>>(new Set())
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
+  const [personalizedRecs, setPersonalizedRecs] = useState<Listing[]>([])
 
   // Filters state
   const [category, setCategory] = useState<string>('')
   const [minPrice, setMinPrice] = useState<string>('')
   const [maxPrice, setMaxPrice] = useState<string>('')
+  const [debouncedMin, setDebouncedMin] = useState('')
+  const [debouncedMax, setDebouncedMax] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedMin(minPrice), 700)
+    return () => clearTimeout(t)
+  }, [minPrice])
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedMax(maxPrice), 700)
+    return () => clearTimeout(t)
+  }, [maxPrice])
 
   const navigate = useNavigate()
 
@@ -61,11 +74,12 @@ export default function HomePage({ token }: { token: string | null }) {
   useEffect(() => {
     const load = async () => {
       setLoading(true)
+      setError(null)
       try {
         const params = new URLSearchParams()
         if (category) params.append('category', category)
-        if (minPrice) params.append('min_price', minPrice)
-        if (maxPrice) params.append('max_price', maxPrice)
+        if (debouncedMin) params.append('min_price', debouncedMin)
+        if (debouncedMax) params.append('max_price', debouncedMax)
 
         const [listingsRes, wishlistRes] = await Promise.all([
           fetch(`${API_URL}/listings?${params.toString()}`, {
@@ -91,7 +105,7 @@ export default function HomePage({ token }: { token: string | null }) {
       }
     }
     load()
-  }, [token, category, minPrice, maxPrice])
+  }, [token, category, debouncedMin, debouncedMax])
 
   // Poll for AI Score updates if any listing is missing a quality_score
   useEffect(() => {
@@ -102,8 +116,8 @@ export default function HomePage({ token }: { token: string | null }) {
       try {
         const params = new URLSearchParams()
         if (category) params.append('category', category)
-        if (minPrice) params.append('min_price', minPrice)
-        if (maxPrice) params.append('max_price', maxPrice)
+        if (debouncedMin) params.append('min_price', debouncedMin)
+        if (debouncedMax) params.append('max_price', debouncedMax)
 
         const res = await fetch(`${API_URL}/listings?${params.toString()}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -124,7 +138,7 @@ export default function HomePage({ token }: { token: string | null }) {
     }, 5000)
 
     return () => clearInterval(interval)
-  }, [listings, token, category, minPrice, maxPrice])
+  }, [listings, token, category, debouncedMin, debouncedMax])
 
   useEffect(() => {
     if (token) {
@@ -134,8 +148,17 @@ export default function HomePage({ token }: { token: string | null }) {
         .then((r) => r.json())
         .then((data) => setCurrentUserId(data.id))
         .catch(() => { })
+
+      // Fetch personalized recommendations
+      fetch(`${API_URL}/recommendations/personalized`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.ok ? r.json() : [])
+        .then(data => setPersonalizedRecs(data))
+        .catch(err => console.error("Error fetching personalized recs:", err))
     } else {
       setCurrentUserId(null)
+      setPersonalizedRecs([])
     }
   }, [token])
 
@@ -269,6 +292,35 @@ export default function HomePage({ token }: { token: string | null }) {
           )}
         </div>
       </motion.section>
+
+      {/* PERSONALIZED RECOMMENDATIONS SECTION */}
+      {token && personalizedRecs.length > 0 && (
+        <motion.section
+          className="personalized-recs-home"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <div className="section-header-recs">
+            <Sparkles size={20} className="emerald-glow" />
+            <h2>Suggested for You</h2>
+          </div>
+          <div className="recs-horizontal-scroll">
+            {personalizedRecs.map(item => (
+              <Link to={`/listings/${item.id}`} key={item.id} className="rec-card-mini glass">
+                <div className="rec-image">
+                  <img src={item.images[0]?.url} alt={item.title} />
+                  <div className="rec-badge-mini">Personalized</div>
+                </div>
+                <div className="rec-details">
+                  <span className="rec-title">{item.title}</span>
+                  <span className="rec-price">₹{item.price.toLocaleString()}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </motion.section>
+      )}
 
       {error ? (
         <div className="error-card glass">
