@@ -15,7 +15,8 @@ import {
     Trash2,
     Sparkles,
     Loader2,
-    Package
+    Package,
+    Eye
 } from 'lucide-react'
 import './ListingDetailPage.css'
 
@@ -47,6 +48,7 @@ type Listing = {
     images: ProductImage[]
     accept_exchange?: boolean
     exchange_preferences?: string | null
+    views_count?: number
 }
 
 export default function ListingDetailPage({ token }: { token: string | null }) {
@@ -354,6 +356,10 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
                         <div className="spec-item">
                             <Shield size={18} />
                             <span>Verified Exchange</span>
+                        </div>
+                        <div className="spec-item" style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}>
+                            <Eye size={18} />
+                            <span>{listing.views_count?.toLocaleString() || 0} People viewed this</span>
                         </div>
                     </div>
 

@@ -66,6 +66,7 @@ class Listing(Base):
     category = Column(String, index=True)
     city = Column(String, index=True)
     is_active = Column(Boolean, default=True)
+    views_count = Column(Integer, default=0)
     
     # Exchange System
     accept_exchange = Column(Boolean, default=True)
@@ -109,7 +110,8 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     total_amount = Column(Float, nullable=False)
-    status = Column(String, default="pending")  # pending, completed, cancelled
+    status = Column(String, default="pending")  # pending, completed, cancelled, ongoing
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")

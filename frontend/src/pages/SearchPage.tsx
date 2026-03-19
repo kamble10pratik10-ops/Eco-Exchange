@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, Package, MapPin, ArrowRight } from 'lucide-react'
+import { Search, MapPin, ArrowRight, Eye } from 'lucide-react'
 import './HomePage.css'
 
 const API_URL = '/api'
@@ -69,6 +69,11 @@ export default function SearchPage({ token }: { token: string | null }) {
                                     <div className="card-meta-elite">
                                         <MapPin size={12} />
                                         <span>{item.city || 'Global'}</span>
+                                        <span className="dot">·</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent-emerald)' }}>
+                                            <Eye size={12} />
+                                            <span>{item.views_count || 0}</span>
+                                        </div>
                                     </div>
                                     <h3 className="card-title-elite">{item.title}</h3>
                                     <div className="card-footer-elite">

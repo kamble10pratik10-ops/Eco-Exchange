@@ -88,6 +88,7 @@ class ListingCreate(ListingBase):
 class Listing(ListingBase):
     id: int
     is_active: bool
+    views_count: int = 0
     owner_id: int
     owner: Optional[UserPublic] = None
     images: List[ProductImage] = []
@@ -160,13 +161,22 @@ class Order(BaseModel):
         from_attributes = True
 
 class DashboardStats(BaseModel):
+    # Core Revenue Metrics
+    lifetime_revenue: float
+    potential_revenue: float
+    
+    # Engagement & Action
+    active_buy_requests: int
+    wishlist_interest_count: int
+    
+    # Leaderboard & Trends
+    city_rank: int
+    total_sellers_in_city: int
+    sales_velocity: List[float] # Last 7 days worth of sales
+    
+    # Basic Stats (Retained for UI flexibility)
     active_listings_count: int
-    sold_listings_count: int
-    total_followers: int
-    total_following: int
-    wishlist_count: int
     unread_messages_count: int
-    total_listings_value: float
     recent_activity: List[dict] = []
 
 

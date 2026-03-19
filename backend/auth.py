@@ -1,16 +1,24 @@
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import hmac
+import hashlib
+import base64
+import json
+import time
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
 from . import models
 from .database import get_db
 
-SECRET_KEY = "CHANGE_ME_IN_PRODUCTION"
+load_dotenv()
+
+SECRET_KEY = os.getenv("JWT_SECRET", "DEV_Kimi_Exo_Exchange_2024_Placeholder")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 

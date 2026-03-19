@@ -247,25 +247,25 @@ _desc_emb_cache:  Dict[int, "np.ndarray"] = {}
 # ─────────────────────────────────────────────────────────────────────────────
 # Cache refresh (BM25 + Dense)
 # ─────────────────────────────────────────────────────────────────────────────
+# --- PERFORMANCE UPGRADE: SMART REFRESH & CACHING ---
+_cached_emb_matrix: np.ndarray | None = None
+
 def _refresh_cache(db: Session) -> Tuple[List[models.Listing], np.ndarray]:
-    """
-    Sync all active listings into the embedding cache and BM25 index.
-    - New listings are encoded; deleted listings are evicted.
-    - BM25 is rebuilt whenever the listing set changes.
-    Returns (listings, full_emb_matrix).
-    """
-    global _bm25_listings, _bm25_index, _bm25_dirty, _vocab_words
-
-    print("DEBUG: Querying listings...", flush=True)
-    listings: List[models.Listing] = (
-        db.query(models.Listing)
-        .filter(models.Listing.is_active == True)  # noqa: E712
-        .all()
-    )
-    print(f"DEBUG: Query done. Found {len(listings)}.", flush=True)
-
+    global _bm25_listings, _bm25_index, _bm25_dirty, _vocab_words, _cached_emb_matrix
 
     with _cache_lock:
+        # If not dirty and we have a cached matrix, return early
+        if not _bm25_dirty and _bm25_index is not None and _cached_emb_matrix is not None:
+            return _bm25_listings, _cached_emb_matrix
+
+        print("DEBUG: Cache is dirty, querying listings...", flush=True)
+        listings: List[models.Listing] = (
+            db.query(models.Listing)
+            .filter(models.Listing.is_active == True)  # noqa: E712
+            .all()
+        )
+        print(f"DEBUG: Query done. Found {len(listings)}.", flush=True)
+
         live_ids = {l.id for l in listings}
 
         # Evict stale
@@ -273,12 +273,11 @@ def _refresh_cache(db: Session) -> Tuple[List[models.Listing], np.ndarray]:
             for lid in list(cache):
                 if lid not in live_ids:
                     del cache[lid]
-        if any(lid not in live_ids for lid in list(_embedding_cache)):
-            _bm25_dirty = True
-
+        
         # Encode new listings
         new_listings = [l for l in listings if l.id not in _embedding_cache]
         if new_listings:
+            print(f"DEBUG: Encoding {len(new_listings)} new listings...", flush=True)
             # Full-text embeddings (for backward-compat fallback)
             full_texts   = [_full_text(l) for l in new_listings]
             title_texts  = [_title_text(l) for l in new_listings]
@@ -293,33 +292,31 @@ def _refresh_cache(db: Session) -> Tuple[List[models.Listing], np.ndarray]:
                 _title_emb_cache[listing.id] = te
                 _desc_emb_cache[listing.id]  = de
 
-            _bm25_dirty = True
+        # Rebuild BM25 or Vocabulary if needed
+        tokenized = [_tokenize(_full_text(l)) for l in listings]
+        _bm25_index    = BM25Okapi(tokenized) if tokenized else None
+        _bm25_listings = listings
 
-        # Rebuild BM25 if anything changed
-        if _bm25_dirty or _bm25_index is None:
-            tokenized = [_tokenize(_full_text(l)) for l in listings]
-            _bm25_index    = BM25Okapi(tokenized) if tokenized else None
-            _bm25_listings = listings
+        # Rebuild vocabulary for typo correction (unique words in all titles)
+        all_title_words: set[str] = set()
+        for l in listings:
+            all_title_words.update(_tokenize(_title_text(l)))
+        _vocab_words = sorted(all_title_words)
 
-            # Rebuild vocabulary for typo correction (unique words in all titles)
-            all_title_words: set[str] = set()
-            for l in listings:
-                all_title_words.update(_tokenize(_title_text(l)))
-            _vocab_words = sorted(all_title_words)
-            _bm25_dirty  = False
-
+        # Build / Rebuild the embedding matrix
         if listings:
             sample_emb = next(iter(_embedding_cache.values()))
-            dim = sample_emb.shape[0]
             emb_matrix = np.stack([_embedding_cache[l.id] for l in listings], axis=0)
         else:
-            # Determine dimension from model if possible, default to 384
             dim = 384
-            if _bi_encoder:
+            if _bi_encoder and _bi_encoder != "DISABLED":
                 dim = _bi_encoder.get_sentence_embedding_dimension()
             emb_matrix = np.zeros((0, dim), dtype=np.float32)
 
-    return listings, emb_matrix
+        _cached_emb_matrix = emb_matrix
+        _bm25_dirty  = False
+
+    return listings, _cached_emb_matrix
 
 
 # ─────────────────────────────────────────────────────────────────────────────

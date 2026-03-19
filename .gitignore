@@ -93,3 +93,14 @@ Thumbs.db
 *.tmp
 *.swp
 *~
+
+# =========================
+# Project specific (Eco-Exchange)
+# =========================
+UPGRADE_SUMMARY.txt
+exox.db
+exox.db-shm
+exox.db-wal
+backend/exox.db
+dashboard_error.log
+auth_debug.log

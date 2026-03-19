@@ -3,7 +3,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
 
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
 from starlette.concurrency import run_in_threadpool
 import cloudinary
 import cloudinary.uploader
@@ -40,11 +40,19 @@ chat_models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Exo Exchange API")
 
+# --- SECURE CORS CONFIGURATION ---
+allowed_origins = [
+    "http://localhost:5173",  # Vite default
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "https://exo-exchange.netlify.app", # Placeholder for your production URL
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -246,40 +254,115 @@ def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    active_listings = [l for l in current_user.listings if l.is_active]
-    sold_listings = [l for l in current_user.listings if not l.is_active]
-    
-    total_value = sum(l.price for l in active_listings)
-    
-    # Unread messages in conversations participating in
-    unread_count = db.query(chat_models.Message).join(chat_models.Conversation).filter(
-        (chat_models.Conversation.buyer_id == current_user.id) | (chat_models.Conversation.seller_id == current_user.id),
-        chat_models.Message.sender_id != current_user.id,
-        chat_models.Message.is_read == False
-    ).count()
+    from sqlalchemy import func, desc
+    from datetime import datetime, timedelta
+    import traceback
 
-    recent_activity = []
-    # Add recent listings as activity
-    user_listings = list(current_user.listings)
-    sorted_listings = sorted(user_listings, key=lambda x: x.id, reverse=True)[:3]
-    for l in sorted_listings:
-        recent_activity.append({
-            "type": "listing",
-            "title": f"Listing: {l.title}",
-            "timestamp": "Active",
-            "id": l.id
-        })
+    try:
+        # 1. Potential Revenue (Value of active listings)
+        active_listings = [l for l in current_user.listings if l.is_active]
+        potential_revenue = sum(l.price for l in active_listings)
 
-    return {
-        "active_listings_count": len(active_listings),
-        "sold_listings_count": len(sold_listings),
-        "total_followers": len(current_user.followers),
-        "total_following": len(current_user.following),
-        "wishlist_count": len(current_user.wishlist_items),
-        "unread_messages_count": unread_count,
-        "total_listings_value": total_value,
-        "recent_activity": recent_activity
-    }
+        # 2. Total Lifetime Revenue (Completed sales only)
+        lifetime_revenue = db.query(func.sum(models.OrderItem.price_at_order)).join(models.Order).join(models.Listing).filter(
+            models.Listing.owner_id == current_user.id,
+            models.Order.status == "completed"
+        ).scalar() or 0.0
+
+        # 3. Active Buy Requests (Pending "ongoing" orders for this sellers items)
+        active_buy_requests = db.query(models.OrderItem).join(models.Order).join(models.Listing).filter(
+            models.Listing.owner_id == current_user.id,
+            models.Order.status == "ongoing"
+        ).count()
+
+        # 4. Item Interest (Total wishlist adds for sellers active items)
+        wishlist_interest_count = db.query(models.WishlistItem).join(models.Listing).filter(
+            models.Listing.owner_id == current_user.id,
+            models.Listing.is_active == True
+        ).count()
+
+        # 5. Local Leaderboard (Rank in their city based on sales)
+        user_city_row = db.query(models.Listing.city).filter(
+            models.Listing.owner_id == current_user.id
+        ).order_by(models.Listing.id.desc()).first()
+        
+        city_rank = 0
+        total_sellers_in_city = 0
+        
+        if user_city_row and user_city_row[0]:
+            target_city = user_city_row[0]
+            # Get all sellers in this city and their total sales
+            city_sales = db.query(
+                models.Listing.owner_id,
+                func.sum(models.OrderItem.price_at_order).label('total_sales')
+            ).join(models.OrderItem).join(models.Order).filter(
+                models.Listing.city == target_city,
+                models.Order.status == "completed"
+            ).group_by(models.Listing.owner_id).order_by(desc('total_sales')).all()
+            
+            # Determine unique sellers in city (even with 0 sales)
+            all_sellers = db.query(models.Listing.owner_id).filter(
+                models.Listing.city == target_city
+            ).distinct().all()
+            total_sellers_in_city = len(all_sellers)
+            
+            for i, (owner_id, sales) in enumerate(city_sales):
+                if owner_id == current_user.id:
+                    city_rank = i + 1
+                    break
+            
+            if city_rank == 0 and total_sellers_in_city > 0:
+                # User is in the city but has 0 sales
+                city_rank = total_sellers_in_city
+
+        # 6. Sales Velocity (Last 7 Days)
+        sales_velocity = []
+        today = datetime.utcnow().date()
+        for i in range(6, -1, -1):
+            day = today - timedelta(days=i)
+            day_str = day.isoformat()
+            day_sales = db.query(func.sum(models.OrderItem.price_at_order)).join(models.Order).join(models.Listing).filter(
+                models.Listing.owner_id == current_user.id,
+                models.Order.status == "completed",
+                func.date(models.Order.created_at) == day_str
+            ).scalar() or 0.0
+            sales_velocity.append(day_sales)
+
+        # Legacy fields for UI consistency
+        unread_messages_count = db.query(chat_models.Message).join(chat_models.Conversation).filter(
+            (chat_models.Conversation.buyer_id == current_user.id) | (chat_models.Conversation.seller_id == current_user.id),
+            chat_models.Message.sender_id != current_user.id,
+            chat_models.Message.is_read == False
+        ).count()
+
+        recent_activity = []
+        user_listings = list(current_user.listings)
+        sorted_listings = sorted(user_listings, key=lambda x: x.id, reverse=True)[:3]
+        for l in sorted_listings:
+            recent_activity.append({
+                "type": "listing",
+                "title": f"Listing: {l.title}",
+                "timestamp": "Active" if l.is_active else "Inactive",
+                "id": l.id
+            })
+
+        return {
+            "lifetime_revenue": float(lifetime_revenue),
+            "potential_revenue": float(potential_revenue),
+            "active_buy_requests": active_buy_requests,
+            "wishlist_interest_count": wishlist_interest_count,
+            "city_rank": city_rank,
+            "total_sellers_in_city": total_sellers_in_city,
+            "sales_velocity": sales_velocity,
+            "active_listings_count": len(active_listings),
+            "unread_messages_count": unread_messages_count,
+            "recent_activity": recent_activity
+        }
+    except Exception as e:
+        error_log = traceback.format_exc()
+        with open("dashboard_error.log", "a") as f:
+            f.write(f"[{datetime.utcnow()}] ERROR in get_dashboard_stats:\n{error_log}\n")
+        raise HTTPException(status_code=500, detail="Internal server error in dashboard calculations.")
 
 
 @app.get("/users/{user_id}/profile", response_model=schemas.User)
@@ -475,6 +558,7 @@ def update_profile(
 @app.post("/listings", response_model=schemas.Listing, status_code=status.HTTP_201_CREATED)
 def create_listing(
     payload: schemas.ListingCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -512,8 +596,9 @@ def create_listing(
             image_records = db.query(models.ProductImage).filter(models.ProductImage.listing_id == listing.id).all()
             for img_rec in image_records:
                 if img_rec.quality_score is None:
-                    print(f"--> [AI-TRIGGER] Launching Kimi inspection for Image {img_rec.id}")
-                    threading.Thread(target=AIInspector.analyze_image, args=(None, img_rec.id), daemon=True).start()
+                    print(f"--> [AI-TRIGGER] Queuing Kimi inspection for Image {img_rec.id}")
+                    # Using FastAPI BackgroundTasks instead of raw threading for better resource management
+                    background_tasks.add_task(AIInspector.analyze_image, None, img_rec.id)
         except Exception as ai_err:
             print(f"!!! AI Trigger Failed on Creation: {ai_err}")
 
@@ -560,6 +645,7 @@ async def upload_images_bulk(
 @app.post("/listings/{listing_id}/images/bulk")
 async def upload_listing_images_bulk(
     listing_id: int,
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -585,9 +671,9 @@ async def upload_listing_images_bulk(
         image_records = db.query(models.ProductImage).filter(models.ProductImage.listing_id == listing_id).all()
         for img_rec in image_records:
             if img_rec.quality_score is None:
-                print(f"--> [AI-TRIGGER] Launching Kimi inspection for Image {img_rec.id}")
-                # For now, we run it in a background thread to avoid blocking the user
-                threading.Thread(target=AIInspector.analyze_image, args=(None, img_rec.id), daemon=True).start()
+                print(f"--> [AI-TRIGGER] Queuing Kimi inspection for Image {img_rec.id}")
+                # Using FastAPI BackgroundTasks for reliability
+                background_tasks.add_task(AIInspector.analyze_image, None, img_rec.id)
     except Exception as ai_err:
         print(f"!!! AI Trigger Failed: {ai_err}")
 
@@ -709,6 +795,16 @@ def get_listing(
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
     
+    # --- FEATURE: VIEW TRACKING (LinkedIn/Insta Style) ---
+    # We increment views for everyone EXCEPT the owner themselves to keep stats honest
+    if not current_user or current_user.id != listing.owner_id:
+        listing.views_count = (listing.views_count or 0) + 1
+        try:
+            db.commit() # Save the new count immediately
+            db.refresh(listing)
+        except:
+            db.rollback()
+
     # --- STAGE 2: IMPLICIT SIGNAL (VIEW) ---
     if current_user:
         try:

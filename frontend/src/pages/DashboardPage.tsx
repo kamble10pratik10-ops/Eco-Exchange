@@ -20,12 +20,7 @@ import './DashboardPage.css'
 const API_URL = '/api'
 
 export default function DashboardPage({ token }: { token: string | null }) {
-    const [stats, setStats] = useState({
-        total_listings: 0,
-        total_messages: 0,
-        total_views: 0,
-        co2_saved: 0
-    })
+    const [stats, setStats] = useState<any>(null)
     const [orders, setOrders] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [reviewOrder, setReviewOrder] = useState<any | null>(null)
@@ -37,6 +32,15 @@ export default function DashboardPage({ token }: { token: string | null }) {
 
         const fetchData = async () => {
             try {
+                // Fetch new advanced dashboard stats
+                const statRes = await fetch(`${API_URL}/auth/dashboard`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+                if (statRes.ok) {
+                    const data = await statRes.json()
+                    setStats(data)
+                }
+
                 const ordRes = await fetch(`${API_URL}/orders`, {
                     headers: { Authorization: `Bearer ${token}` }
                 })
@@ -44,13 +48,6 @@ export default function DashboardPage({ token }: { token: string | null }) {
                     const data = await ordRes.json()
                     setOrders(data)
                 }
-
-                setStats({
-                    total_listings: 12,
-                    total_messages: 45,
-                    total_views: 1204,
-                    co2_saved: 156
-                })
             } catch (err) {
                 console.error(err)
             } finally {
@@ -101,46 +98,85 @@ export default function DashboardPage({ token }: { token: string | null }) {
         finally { setIsSubmitting(false) }
     }
 
-    if (loading) return <div className="loading-container-elite"><span>Compiling your impact...</span></div>
+    if (loading || !stats) return <div className="loading-container-elite"><span>Compiling your impact...</span></div>
 
     return (
         <div className="dashboard-elite">
+            {/* PRIORITY ALERT: Active Buy Requests */}
+            {stats.active_buy_requests > 0 && (
+                <motion.div 
+                    className="priority-alert glass-bright"
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    style={{ border: '2px solid var(--accent-emerald)', marginBottom: '32px', padding: '20px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '16px', color: 'var(--accent-emerald)', fontWeight: 700 }}
+                >
+                    <Zap size={24} className="emerald-glow" />
+                    <span>HIGH PRIORITY: You have {stats.active_buy_requests} pending buy requests waiting for approval!</span>
+                    <Link to="/selling-history" style={{ marginLeft: 'auto', textDecoration: 'underline' }}>View Requests</Link>
+                </motion.div>
+            )}
+
             <motion.section
                 className="dashboard-hero"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
+                style={{ gridTemplateColumns: '2fr 1.5fr' }}
             >
                 <div className="hero-text">
                     <div className="emerald-badge" style={{ marginBottom: '16px', display: 'inline-flex' }}>
-                        Prestige Account
+                        Leaderboard: #{stats.city_rank} of {stats.total_sellers_in_city} Sellers in {stats.recent_activity?.[0]?.city || 'Local Area'}
                     </div>
-                    <h1 className="text-gradient">Your Sustainable<br />Command Center</h1>
-                    <p style={{ color: 'var(--text-secondary)', maxWidth: '500px', fontSize: '1.1rem' }}>
-                        Tracking your contribution to the circular economy. Every trade you make reduces waste and empowers the community.
+                    <h1 className="text-gradient">₹{stats.lifetime_revenue.toLocaleString()}</h1>
+                    <p style={{ color: 'var(--text-secondary)', maxWidth: '500px', fontSize: '1.2rem', fontWeight: 600, letterSpacing: '0.05em' }}>
+                        TOTAL LIFETIME REVENUE
                     </p>
                 </div>
-                <div className="impact-visualization">
-                    <TreePine className="glass-tree-icon" />
+                <div className="velocity-card glass-heavy" style={{ padding: '24px', borderRadius: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                         <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>SALES VELOCITY (7D)</span>
+                         <TrendingUp size={16} className="emerald-glow" />
+                    </div>
+                    <div className="sparkline-container" style={{ height: '80px', display: 'flex', alignItems: 'flex-end', gap: '4px' }}>
+                        {stats.sales_velocity.map((v: number, i: number) => {
+                            const max = Math.max(...stats.sales_velocity, 1);
+                            const height = (v / max) * 100;
+                            return (
+                                <div 
+                                    key={i} 
+                                    style={{ 
+                                        flex: 1, 
+                                        height: `${Math.max(height, 5)}%`, 
+                                        background: 'var(--accent-emerald)', 
+                                        opacity: i === 6 ? 1 : 0.4,
+                                        borderRadius: '4px' 
+                                    }} 
+                                />
+                            );
+                        })}
+                    </div>
                 </div>
             </motion.section>
 
             <div className="stats-overview-elite">
+                {/* 2nd Point: Potential Revenue */}
                 <motion.div className="stat-card-premium" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-                    <TrendingUp size={24} className="emerald-glow" />
-                    <span className="stat-value">{stats.total_views}</span>
-                    <span className="stat-label">Total Gaze</span>
-                </motion.div>
-
-                <motion.div className="stat-card-premium" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
                     <ShoppingBag size={24} style={{ color: 'var(--accent-gold)' }} />
-                    <span className="stat-value">{stats.total_listings}</span>
-                    <span className="stat-label">Inventory Assets</span>
+                    <span className="stat-value">₹{stats.potential_revenue.toLocaleString()}</span>
+                    <span className="stat-label">Active Inventory Value</span>
                 </motion.div>
 
+                {/* 6th Point: Item Interest / Wishlists */}
+                <motion.div className="stat-card-premium" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                    <Star size={24} className="gold-glow" />
+                    <span className="stat-value">{stats.wishlist_interest_count}</span>
+                    <span className="stat-label">Engagement (Wishlists)</span>
+                </motion.div>
+
+                {/* City Rank */}
                 <motion.div className="stat-card-premium" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-                    <TreePine size={24} className="emerald-glow" />
-                    <span className="stat-value">{stats.co2_saved}kg</span>
-                    <span className="stat-label">CO2 Mitigated</span>
+                    <Shield size={24} className="emerald-glow" />
+                    <span className="stat-value">#{stats.city_rank}</span>
+                    <span className="stat-label">City Ranking</span>
                 </motion.div>
             </div>
 

@@ -10,7 +10,8 @@ import {
   Package,
   Sparkles,
   ShoppingBag,
-  Loader2
+  Loader2,
+  Eye
 } from 'lucide-react'
 import './HomePage.css'
 
@@ -32,6 +33,7 @@ type Listing = {
   is_active: boolean
   owner_id: number
   images: ProductImage[]
+  views_count?: number
 }
 
 export default function HomePage({ token }: { token: string | null }) {
@@ -427,6 +429,11 @@ export default function HomePage({ token }: { token: string | null }) {
                       <span>{item.city || 'Global'}</span>
                       <span className="dot">·</span>
                       <span>{item.category?.split(' ')[0] || 'Curated'}</span>
+                      <span className="dot">·</span>
+                      <div className="card-views-elite" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent-emerald)' }}>
+                        <Eye size={12} />
+                        <span>{item.views_count || 0}</span>
+                      </div>
                     </div>
 
                     <h3 className="card-title-elite">{item.title}</h3>
