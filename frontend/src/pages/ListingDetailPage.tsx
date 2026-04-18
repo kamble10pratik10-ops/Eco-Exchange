@@ -70,8 +70,8 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
         frequently_bought_together: Listing[],
         visually_similar: Listing[]
     } | null>(null)
-    const [setLoadingRecs] = useState(false)
-
+    const [, setLoadingRecs] = useState(false)
+ 
     const navigate = useNavigate()
 
     useEffect(() => {
