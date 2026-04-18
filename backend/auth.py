@@ -22,7 +22,9 @@ SECRET_KEY = os.getenv("JWT_SECRET", "DEV_Kimi_Exo_Exchange_2024_Placeholder")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha256"],
+    deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 
@@ -148,4 +150,4 @@ async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme
         # We can just reuse get_current_user but catch the exception
         return await get_current_user(token, db)
     except HTTPException:
-        return None
+        return None
