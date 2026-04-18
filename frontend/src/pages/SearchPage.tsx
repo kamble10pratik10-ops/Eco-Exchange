@@ -4,7 +4,11 @@ import { motion } from 'framer-motion'
 import { Search, MapPin, ArrowRight, Eye } from 'lucide-react'
 import './HomePage.css'
 
-const API_URL = '/api'
+const API_URL =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+    ? import.meta.env.VITE_API_URL
+    : '/api';
 
 export default function SearchPage({ token }: { token: string | null }) {
     const [searchParams] = useSearchParams()

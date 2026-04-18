@@ -5,8 +5,12 @@ import { Calendar, Package, ArrowRight, ShieldCheck, Settings, TrendingUp, Hands
 import { AnimatePresence } from 'framer-motion'
 import './HomePage.css'
 
-const API_URL = '/api'
-
+const API_URL =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+    ? import.meta.env.VITE_API_URL
+    : '/api';
+    
 type UserProfile = {
   id: number
   name: string

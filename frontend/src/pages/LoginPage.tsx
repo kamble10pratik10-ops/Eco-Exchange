@@ -4,7 +4,11 @@ import { motion } from 'framer-motion'
 import { Sparkles } from 'lucide-react'
 import './AuthLayout.css'
 
-const API_URL = '/api'
+const API_URL =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+    ? import.meta.env.VITE_API_URL
+    : '/api';
 
 type LoginPageProps = {
     onLogin: (token: string | null) => void

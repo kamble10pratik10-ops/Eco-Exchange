@@ -3,7 +3,11 @@ import { motion } from 'framer-motion'
 import { Shield, User, Lock, Save, Sparkles, Camera, Loader2 } from 'lucide-react'
 import './AuthLayout.css'
 
-const API_URL = '/api'
+const API_URL =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+    ? import.meta.env.VITE_API_URL
+    : '/api';
 
 export default function ProfilePage({ token }: { token: string | null }) {
     const [formData, setFormData] = useState({
