@@ -4,11 +4,7 @@ import { motion } from 'framer-motion'
 // removed unused icons
 import './AuthLayout.css'
 
-const API_URL =
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
-    ? import.meta.env.VITE_API_URL
-    : '/api';
+import { API_URL } from '../api'
 
 export default function RegisterPage() {
     const [formData, setFormData] = useState({

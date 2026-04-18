@@ -71,3 +71,18 @@ export default defineConfig([
   },
 ])
 ```
+
+## API Configuration
+
+This project uses a centralized API configuration in `src/api.ts` and a Vite proxy to simplify development.
+
+### Development
+- The frontend makes requests to `/api/*`.
+- Vite proxies these requests to the backend (default: `http://localhost:8000`).
+- You can change the local backend URL by setting `VITE_API_URL` in your `.env` file.
+
+### Production
+- In production, the `API_URL` defaults to `/api`.
+- If your backend is on a different domain, set the `VITE_API_URL_PROD` environment variable in your production hosting provider (e.g., Netlify, Vercel) to your full backend URL (e.g., `https://api.yourdomain.com`).
+- Alternatively, keep the default `/api` and configure a redirect/rewrite on your hosting provider to point `/api/*` to your production backend.
+

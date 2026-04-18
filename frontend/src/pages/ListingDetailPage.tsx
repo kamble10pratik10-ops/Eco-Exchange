@@ -21,11 +21,7 @@ import {
 } from 'lucide-react'
 import './ListingDetailPage.css'
 
-const API_URL =
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
-    ? import.meta.env.VITE_API_URL
-    : '/api';
+import { API_URL } from '../api'
 type ProductImage = {
     id: number
     url: string

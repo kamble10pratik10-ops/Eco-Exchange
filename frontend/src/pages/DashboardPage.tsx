@@ -17,10 +17,10 @@ import {
 import './DashboardPage.css'
 
 const API_URL =
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
-    ? import.meta.env.VITE_API_URL
-    : '/api';
+    window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'
+        ? import.meta.env.VITE_API_URL
+        : '/api';
 
 export default function DashboardPage({ token }: { token: string | null }) {
     const [stats, setStats] = useState<any>(null)
@@ -107,7 +107,7 @@ export default function DashboardPage({ token }: { token: string | null }) {
         <div className="dashboard-elite">
             {/* PRIORITY ALERT: Active Buy Requests */}
             {stats.active_buy_requests > 0 && (
-                <motion.div 
+                <motion.div
                     className="priority-alert glass-bright"
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -136,23 +136,23 @@ export default function DashboardPage({ token }: { token: string | null }) {
                 </div>
                 <div className="velocity-card glass-heavy" style={{ padding: '24px', borderRadius: '24px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-                         <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>SALES VELOCITY (7D)</span>
-                         <TrendingUp size={16} className="emerald-glow" />
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>SALES VELOCITY (7D)</span>
+                        <TrendingUp size={16} className="emerald-glow" />
                     </div>
                     <div className="sparkline-container" style={{ height: '80px', display: 'flex', alignItems: 'flex-end', gap: '4px' }}>
                         {stats.sales_velocity.map((v: number, i: number) => {
                             const max = Math.max(...stats.sales_velocity, 1);
                             const height = (v / max) * 100;
                             return (
-                                <div 
-                                    key={i} 
-                                    style={{ 
-                                        flex: 1, 
-                                        height: `${Math.max(height, 5)}%`, 
-                                        background: 'var(--accent-emerald)', 
+                                <div
+                                    key={i}
+                                    style={{
+                                        flex: 1,
+                                        height: `${Math.max(height, 5)}%`,
+                                        background: 'var(--accent-emerald)',
                                         opacity: i === 6 ? 1 : 0.4,
-                                        borderRadius: '4px' 
-                                    }} 
+                                        borderRadius: '4px'
+                                    }}
                                 />
                             );
                         })}
