@@ -15,8 +15,8 @@ jobs:
       run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
     - name: Build Image
-      run: docker build -t ghcr.io/${{ github.repository_owner }}/Eco-Exchange:latest ./backend
+      run: docker build -t ghcr.io/${{ github.repository_owner }}/eco-exchange:latest ./backend
 
     - name: Push Image
-      run: docker push ghcr.io/${{ github.repository_owner }}/Eco-Exchange:latest
+      run: docker push ghcr.io/${{ github.repository_owner }}/eco-exchange:latest
      
