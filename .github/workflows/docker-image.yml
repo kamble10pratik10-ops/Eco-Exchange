@@ -19,7 +19,7 @@ jobs:
         run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u kamble10pratik10-ops --password-stdin
 
       - name: Build Image
-        run: docker build -t ghcr.io/kamble10pratik10-ops/ecoexchange:latest ./backend
+        run: docker build -t ghcr.io/kamble10pratik10-ops/ecoexchange:latest .
 
       - name: Push Image
         run: docker push ghcr.io/kamble10pratik10-ops/ecoexchange:latest
