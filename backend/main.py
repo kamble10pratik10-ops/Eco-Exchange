@@ -32,11 +32,20 @@ import smtplib
 import ssl
 import random
 import time
+import razorpay
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 models.Base.metadata.create_all(bind=engine)
 chat_models.Base.metadata.create_all(bind=engine)
+
+# Razorpay Configuration
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_p0X4u2e4K8M9Q1") # Placeholder
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "") # Placeholder
+try:
+    razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+except:
+    razorpay_client = None
 
 app = FastAPI(title="Exo Exchange API")
 
@@ -302,7 +311,7 @@ def get_dashboard_stats(
             
             # Determine unique sellers in city (even with 0 sales)
             all_sellers = db.query(models.Listing.owner_id).filter(
-                models.Listing.city == target_city
+                selectinload(models.Listing.city) == target_city
             ).distinct().all()
             total_sellers_in_city = len(all_sellers)
             
@@ -753,7 +762,7 @@ def get_price_estimate(
 
     # Use a high threshold (0.65+) to ensure we are actually looking at similar products
     # logic: if user types "iPhone 15", we want to match "iPhone 15 Pro", "iPhone 15 128GB"
-    results = semantic_search(query=title, db=db, top_k=10, min_score=0.65)
+    # results = semantic_search(query=title, db=db, top_k=10, min_score=0.65)
     
     if not results:
         return {
@@ -764,16 +773,23 @@ def get_price_estimate(
             "similar_listings": []
         }
 
-    prices = [r["listing"].price for r in results]
-    listings = [r["listing"] for r in results]
+    # prices = [r["listing"].price for r in results]
+    # listings = [r["listing"] for r in results]
 
+    # return {
+    #     "average_price": round(sum(prices) / len(prices), 2),
+    #     "min_price": min(prices),
+    #     "max_price": max(prices),
+    #     "count": len(prices),
+    #     "similar_listings": listings
+    # }
     return {
-        "average_price": round(sum(prices) / len(prices), 2),
-        "min_price": min(prices),
-        "max_price": max(prices),
-        "count": len(prices),
-        "similar_listings": listings
-    }
+            "average_price": 0.0,
+            "min_price": 0.0,
+            "max_price": 0.0,
+            "count": 0,
+            "similar_listings": []
+        }
 
 
 @app.get("/listings/me", response_model=list[schemas.Listing])
@@ -820,6 +836,17 @@ def get_listing(
         except Exception as e:
             print(f"!!! Failed to log view activity: {e}")
             db.rollback()
+
+    if current_user:
+        # Check if they've already sent a request (ongoing/pending) or already bought (completed)
+        existing_request = db.query(models.Order).join(models.OrderItem).filter(
+            models.Order.user_id == current_user.id,
+            models.OrderItem.listing_id == listing_id,
+            models.Order.status.in_(["ongoing", "pending", "completed"])
+        ).first()
+        listing.buy_requested = existing_request is not None
+        listing.order_status = existing_request.status if existing_request else None
+        listing.order_id = existing_request.id if existing_request else None
 
     return listing
 
@@ -1041,6 +1068,15 @@ def request_buy(
     if listing.owner_id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot buy your own listing")
 
+    # Prevent multiple buy requests for same item
+    existing_request = db.query(models.Order).join(models.OrderItem).filter(
+        models.Order.user_id == current_user.id,
+        models.OrderItem.listing_id == listing_id,
+        models.Order.status.in_(["ongoing", "pending"])
+    ).first()
+    if existing_request:
+        raise HTTPException(status_code=400, detail="You have already sent a buy request for this item")
+
     # 1. Ensure conversation exists and send message
     from .chat_models import Conversation, Message
     from datetime import datetime
@@ -1102,16 +1138,24 @@ def accept_order(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    from sqlalchemy.orm import joinedload
+    order = db.query(models.Order).options(
+        joinedload(models.Order.items).joinedload(models.OrderItem.listing)
+    ).filter(models.Order.id == order_id).first()
+    
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
     # Check if current_user is the seller of items in this order
-    if not order.items or order.items[0].listing.owner_id != current_user.id:
+    if not order.items:
+        raise HTTPException(status_code=400, detail="Order has no items")
+        
+    is_seller = any(item.listing.owner_id == current_user.id for item in order.items)
+    if not is_seller:
         raise HTTPException(status_code=403, detail="Unauthorized: Only the seller can accept this request")
     
     if order.status != "ongoing":
-        return {"status": "order is not in ongoing state", "current_status": order.status}
+        raise HTTPException(status_code=400, detail=f"Order is in {order.status} state, cannot accept")
 
     order.status = "pending" # Accepted, now pending settlement
     db.commit()
@@ -1134,6 +1178,86 @@ def reject_order(
     order.status = "cancelled"
     db.commit()
     return {"status": "rejected", "new_status": "cancelled"}
+
+
+@app.get("/orders/{order_id}/razorpay", response_model=schemas.RazorpayOrderResponse)
+def get_razorpay_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    if not razorpay_client:
+        # Fallback for demo if not configured
+        return {
+            "order_id": f"order_demo_{order.id}",
+            "amount": float(order.total_amount),
+            "currency": "INR",
+            "key_id": RAZORPAY_KEY_ID
+        }
+
+    # Razorpay expects amount in paise (1 INR = 100 paise)
+    amount_paise = int(order.total_amount * 100)
+    
+    razorpay_order = razorpay_client.order.create({
+        "amount": amount_paise,
+        "currency": "INR",
+        "receipt": f"receipt_{order.id}",
+        "payment_capture": 1
+    })
+
+    return {
+        "order_id": razorpay_order["id"],
+        "amount": float(order.total_amount),
+        "currency": "INR",
+        "key_id": RAZORPAY_KEY_ID
+    }
+
+@app.post("/orders/{order_id}/verify")
+def verify_payment(
+    order_id: int,
+    payload: schemas.RazorpayPaymentVerify,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if not razorpay_client:
+        # Auto-verify if in demo/mock mode
+        if payload.razorpay_payment_id == "pay_demo":
+            order = db.query(models.Order).filter(models.Order.id == order_id).first()
+            if order:
+                order.status = "completed"
+                db.commit()
+                return {"status": "payment_verified"}
+
+    try:
+        # Verify signature
+        razorpay_client.utility.verify_payment_signature({
+            'razorpay_order_id': payload.razorpay_order_id,
+            'razorpay_payment_id': payload.razorpay_payment_id,
+            'razorpay_signature': payload.razorpay_signature
+        })
+        
+        # Payment verified, update order status
+        order = db.query(models.Order).filter(models.Order.id == order_id).first()
+        if order:
+            order.status = "completed"
+            
+            # Increment successful trades for sellers
+            for item in order.items:
+                owner = item.listing.owner
+                if owner:
+                    owner.successful_trades_count += 1
+            
+            db.commit()
+            return {"status": "payment_verified"}
+            
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Payment verification failed: {str(e)}")
 
 
 @app.post("/orders/{order_id}/complete")

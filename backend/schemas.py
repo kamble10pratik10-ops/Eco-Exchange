@@ -94,6 +94,9 @@ class Listing(ListingBase):
     images: List[ProductImage] = []
     accept_exchange: bool = True
     exchange_preferences: Optional[str] = None
+    buy_requested: bool = False
+    order_status: Optional[str] = None
+    order_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -262,3 +265,16 @@ class UserActivity(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RazorpayOrderResponse(BaseModel):
+    order_id: str
+    amount: float
+    currency: str
+    key_id: str
+
+
+class RazorpayPaymentVerify(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
