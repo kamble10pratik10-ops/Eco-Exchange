@@ -74,8 +74,14 @@ export default function MyProfilePage({ token }: { token: string | null }) {
         })
           .then(r => r.json())
           .then(data => setSellingHistory(data))
+      } else {
+        const err = await res.json()
+        alert(err.detail || "Failed to accept order")
       }
-    } catch (err) { console.error(err) }
+    } catch (err) { 
+      console.error(err)
+      alert("A network error occurred")
+    }
   }
 
   const handleRejectOrder = async (orderId: number) => {
@@ -94,8 +100,14 @@ export default function MyProfilePage({ token }: { token: string | null }) {
         })
           .then(r => r.json())
           .then(data => setSellingHistory(data))
+      } else {
+        const err = await res.json()
+        alert(err.detail || "Failed to reject order")
       }
-    } catch (err) { console.error(err) }
+    } catch (err) {
+      console.error(err)
+      alert("A network error occurred")
+    }
   }
 
   if (loading) return <div className="loading-container-elite"><span>Retrieving community record...</span></div>
@@ -358,9 +370,13 @@ export default function MyProfilePage({ token }: { token: string | null }) {
                           <img src={item.listing?.images?.[0]?.url || 'https://placehold.co/400x400/1e293b/10b981?text=Order'} alt="" className="elite-card-image" />
                         </div>
                         <div className="card-content-elite">
-                          <h3 className="card-title-elite">{item.listing?.title}</h3>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                            Order #{order.id} • {order.status}
+                            Order #{order.id} • {
+                                order.status === 'ongoing' ? 'Awaiting Approval' :
+                                order.status === 'pending' ? 'Authorized (Pay Now)' :
+                                order.status === 'completed' ? 'Completed' :
+                                order.status
+                            }
                           </div>
                           <div className="card-footer-elite">
                             <span className="price-elite">₹{item.price_at_order?.toLocaleString()}</span>
@@ -399,9 +415,11 @@ export default function MyProfilePage({ token }: { token: string | null }) {
                           <img src={item.listing?.images?.[0]?.url || 'https://placehold.co/400x400/1e293b/10b981?text=Sale'} alt="" className="elite-card-image" />
                         </div>
                         <div className="card-content-elite">
-                          <h3 className="card-title-elite">{item.listing?.title}</h3>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                            {order.status === 'ongoing' ? 'New Buy Request' : `Status: ${order.status}`}
+                            {order.status === 'ongoing' ? 'New Buy Request (Awaiting Your Approval)' : 
+                             order.status === 'pending' ? 'Approved (Waiting for Buyer Payment)' :
+                             order.status === 'completed' ? 'Trade Completed' : 
+                             `Status: ${order.status}`}
                           </div>
                           <div className="card-footer-elite" style={{ flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
                             <span className="price-elite">₹{item.price_at_order?.toLocaleString()}</span>
@@ -426,7 +444,7 @@ export default function MyProfilePage({ token }: { token: string | null }) {
                             )}
 
                             {order.status === 'pending' && (
-                              <span style={{ color: 'var(--accent-emerald)', fontSize: '0.9rem', fontWeight: 700, marginTop: '8px' }}>Accepted (Pending Trade)</span>
+                              <span style={{ color: 'var(--accent-emerald)', fontSize: '0.9rem', fontWeight: 700, marginTop: '8px' }}>Approved - Awaiting Payment</span>
                             )}
 
                             <Link to={`/listings/${item.listing?.id}`} className="btn-view-elite" style={{ position: 'absolute', right: '12px', top: '12px' }}>

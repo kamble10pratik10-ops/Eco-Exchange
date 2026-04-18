@@ -16,14 +16,16 @@ import {
     Sparkles,
     Loader2,
     Package,
-    Eye
+    Eye,
+    CreditCard
 } from 'lucide-react'
 import './ListingDetailPage.css'
 
-const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? `http://${window.location.hostname}:8000`
-    : '/api'
-
+const API_URL =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1'
+    ? import.meta.env.VITE_API_URL
+    : '/api';
 type ProductImage = {
     id: number
     url: string
@@ -49,6 +51,9 @@ type Listing = {
     accept_exchange?: boolean
     exchange_preferences?: string | null
     views_count?: number
+    buy_requested?: boolean
+    order_status?: string | null
+    order_id?: number | null
 }
 
 export default function ListingDetailPage({ token }: { token: string | null }) {
@@ -68,6 +73,18 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
     const [loadingRecs, setLoadingRecs] = useState(false)
 
     const navigate = useNavigate()
+
+    useEffect(() => {
+        const script = document.createElement("script")
+        script.src = "https://checkout.razorpay.com/v1/checkout.js"
+        script.async = true
+        document.body.appendChild(script)
+        return () => {
+            if (document.body.contains(script)) {
+                document.body.removeChild(script)
+            }
+        }
+    }, [])
 
     useEffect(() => {
         const fetchDetail = async () => {
@@ -201,7 +218,8 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
             })
             if (res.ok) {
                 alert("Buy request sent! You can track it in your profile history.")
-                navigate('/my-profile')
+                setListing(prev => prev ? { ...prev, buy_requested: true } : null)
+                // navigate('/my-profile') // Stay on page to see the updated button status
             } else {
                 const err = await res.json()
                 alert(err.detail || "Failed to process buy request")
@@ -209,6 +227,56 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
         } catch (err) {
             console.error(err)
             alert("Error sending buy request")
+        }
+    }
+
+    const handlePay = async () => {
+        if (!token || !listing?.order_id) return
+        try {
+            const res = await fetch(`${API_URL}/orders/${listing.order_id}/razorpay`, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (!res.ok) throw new Error("Failed to initialize payment")
+            const orderData = await res.json()
+
+            const options = {
+                key: orderData.key_id,
+                amount: orderData.amount * 100,
+                currency: orderData.currency,
+                name: "Eco-Exchange",
+                description: `Payment for ${listing.title}`,
+                order_id: orderData.order_id,
+                handler: async (response: any) => {
+                    const verifyRes = await fetch(`${API_URL}/orders/${listing.order_id}/verify`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature
+                        })
+                    })
+                    if (verifyRes.ok) {
+                        alert("Payment successful! Transaction complete.")
+                        setListing(prev => prev ? { ...prev, order_status: 'completed' } : null)
+                    } else {
+                        alert("Payment verification failed.")
+                    }
+                },
+                prefill: {
+                    name: (currentUser as any)?.name || "",
+                },
+                theme: { color: "#10b981" }
+            }
+            // @ts-ignore
+            const rzp = new window.Razorpay(options)
+            rzp.open()
+        } catch (err) {
+            console.error(err);
+            alert("Error initiating payment process")
         }
     }
 
@@ -439,21 +507,55 @@ export default function ListingDetailPage({ token }: { token: string | null }) {
                                 <span>Secure Negotiation</span>
                             </button>
                             
-                            <button
-                                onClick={handleBuy}
-                                className="btn-chat-premium"
-                                style={{ 
+                            {listing.order_status === 'pending' ? (
+                                <button
+                                    onClick={handlePay}
+                                    className="btn-chat-premium"
+                                    style={{ 
+                                        flex: 1, 
+                                        minWidth: '200px', 
+                                        border: 'none', 
+                                        cursor: 'pointer',
+                                        background: 'var(--accent-emerald)',
+                                        color: '#fff',
+                                        boxShadow: '0 0 20px rgba(16, 185, 129, 0.4)'
+                                    }}
+                                >
+                                    <CreditCard size={20} />
+                                    <span>Pay Now & Complete</span>
+                                </button>
+                            ) : listing.order_status === 'completed' ? (
+                                <div style={{ 
                                     flex: 1, 
-                                    minWidth: '200px', 
-                                    border: 'none', 
-                                    cursor: 'pointer',
-                                    background: 'var(--accent-emerald)',
-                                    color: '#fff'
-                                }}
-                            >
-                                <Zap size={20} />
-                                <span>Buy Now</span>
-                            </button>
+                                    padding: '16px', 
+                                    background: 'rgba(16, 185, 129, 0.1)', 
+                                    borderRadius: '12px', 
+                                    textAlign: 'center', 
+                                    color: 'var(--accent-emerald)',
+                                    fontWeight: 700,
+                                    border: '1px solid var(--accent-emerald)'
+                                }}>
+                                    ✓ Transaction Completed Successfully
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={listing.buy_requested ? undefined : handleBuy}
+                                    disabled={listing.buy_requested}
+                                    className="btn-chat-premium"
+                                    style={{ 
+                                        flex: 1, 
+                                        minWidth: '200px', 
+                                        border: 'none', 
+                                        cursor: listing.buy_requested ? 'default' : 'pointer',
+                                        background: listing.buy_requested ? 'var(--text-secondary)' : 'var(--accent-emerald)',
+                                        color: '#fff',
+                                        opacity: listing.buy_requested ? 0.7 : 1
+                                    }}
+                                >
+                                    <Zap size={20} />
+                                    <span>{listing.buy_requested ? 'Request Sent' : 'Buy Now'}</span>
+                                </button>
+                            )}
 
                             <p className="trust-footer" style={{ width: '100%' }}>
                                 <Shield size={12} />
