@@ -2,21 +2,24 @@ name: Docker Image CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-    - uses: actions/checkout@v4
-    - name:  Login to GHCR
-      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - uses: actions/checkout@v4
 
-    - name: Build Image
-      run: docker build -t ghcr.io/${{ github.repository_owner }}/ecoexchange:latest ./backend
+      - name: Login to GHCR
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u kamble10pratik10-ops --password-stdin
 
-    - name: Push Image
-      run: docker push ghcr.io/${{ github.repository_owner }}/ecoexchange:latest
-     
+      - name: Build Image
+        run: docker build -t ghcr.io/kamble10pratik10-ops/ecoexchange:latest ./backend
+
+      - name: Push Image
+        run: docker push ghcr.io/kamble10pratik10-ops/ecoexchange:latest
