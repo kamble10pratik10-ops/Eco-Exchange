@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
     Camera,
-    Upload,
     X,
     Sparkles,
     ArrowRight,

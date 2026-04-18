@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { MessageSquare, Clock, ChevronRight, Package } from 'lucide-react'
+import { MessageSquare, ChevronRight, Package } from 'lucide-react'
 import './Chat.css'
 
 const API_URL =
@@ -10,15 +10,15 @@ const API_URL =
     ? import.meta.env.VITE_API_URL
     : '/api';
 
-type Conversation = {
-    id: number
-    listing_id: number
-    listing_title: string
-    listing_image?: string
-    other_user_name: string
-    last_message?: string
-    updated_at: string
-}
+// type Conversation = {
+//     id: number
+//     listing_id: number
+//     listing_title: string
+//     listing_image?: string
+//     other_user_name: string
+//     last_message?: string
+//     updated_at: string
+// }
 
 export default function ChatListPage({ token }: { token: string | null }) {
     const [convos, setConvos] = useState<any[]>([])
