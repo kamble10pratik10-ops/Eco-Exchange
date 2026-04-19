@@ -4,11 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Paperclip, Send, ArrowLeft, ShieldCheck, User, X, FileText, Check, CheckCheck } from 'lucide-react'
 import './Chat.css'
 
-const API_URL =
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
-    ? import.meta.env.VITE_API_URL
-    : '/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 const WS_URL = API_URL.replace('http', 'ws')
 

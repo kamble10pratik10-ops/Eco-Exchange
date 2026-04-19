@@ -4,11 +4,7 @@ import { motion } from 'framer-motion'
 import { MessageSquare, ChevronRight, Package } from 'lucide-react'
 import './Chat.css'
 
-const API_URL =
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
-    ? import.meta.env.VITE_API_URL
-    : '/api';
+const API_URL = import.meta.env.VITE_API_URL;
 
 // type Conversation = {
 //     id: number
