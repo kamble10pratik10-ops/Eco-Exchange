@@ -9,13 +9,6 @@ export default defineConfig(() => {
     server: {
       host: '0.0.0.0',
       allowedHosts: true, // Allow Cloudflare Tunnel hosts
-      proxy: {
-        '/api': {
-          target: 'https://ecoexchange-latest.onrender.com',
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api/, ''),
-        },
-      },
     },
   }
 })
