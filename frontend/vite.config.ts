@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+ 
   return {
     plugins: [react()],
     server: {
@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true, // Allow Cloudflare Tunnel hosts
       proxy: {
         '/api': {
-          target: env.VITE_API_URL || 'http://localhost:8000',
+          target: 'https://ecoexchange-latest.onrender.com',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
         },
