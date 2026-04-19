@@ -8,7 +8,7 @@ export default defineConfig(() => {
     plugins: [react()],
     server: {
       host: '0.0.0.0',
-      allowedHosts: true, // Allow Cloudflare Tunnel hosts
+      allowedHosts: true as const, // Allow Cloudflare Tunnel hosts
     },
   }
 })
